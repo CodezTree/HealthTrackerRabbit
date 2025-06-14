@@ -44,7 +44,7 @@ dependencies:
   isar: ^3.0.5
   isar_flutter_libs: ^3.0.5
   path_provider: ^2.1.1
-  android_alarm_manager_plus: ^3.0.4
+  android_alarm_manager_plus: ^4.0.0
   sqflite: ^2.3.0
 
 dev_dependencies:
