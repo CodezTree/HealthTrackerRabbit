@@ -1,4 +1,4 @@
-package com.example.rabbithole_health_tracker
+package com.example.rabbithole_health_tracker_new
 
 import android.app.Application
 import com.smtlink.transferprotocolsdk.ble.BleTransferManager
@@ -124,5 +124,4 @@ class MainApplication : Application(), BTMGattCallBack, AnalyticalDataCallBack {
     override fun getGpsDataProgress(progress: Int) {
         Log.d(TAG, "GPS data progress: $progress")
     }
-}
 }

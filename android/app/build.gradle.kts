@@ -39,6 +39,10 @@ android {
     }
 }
 
+dependencies {
+    implementation(files("libs/transferprotocolsdk.jar"))
+}
+
 flutter {
     source = "../.."
 }
