@@ -6,6 +6,7 @@ import '../services/background_service.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
 import '../providers/connection_provider.dart';
+import 'package:flutter/foundation.dart';
 
 class BleService {
   final Ref ref;
@@ -72,6 +73,8 @@ class BleService {
 
           final healthData = ref.read(healthDataProvider.notifier);
           final latest = ref.read(healthDataProvider).latest;
+
+          debugPrint('[$type] 값 수신: $value');
 
           switch (type) {
             case 'heart':

@@ -12,12 +12,19 @@ import com.smtlink.transferprotocolsdk.ble.AnalyticalDataCallBack
 import org.json.JSONObject
 import android.content.Intent
 import android.os.Build
+import android.util.Log
+import java.util.*
 
 class MainActivity: FlutterActivity() {
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+
     private val METHOD_CHANNEL = "com.example.sr08_sdk/methods"
     private val EVENT_CHANNEL = "com.example.sr08_sdk/events"
     private var eventSink: EventChannel.EventSink? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private lateinit var timer: Timer
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -53,12 +60,7 @@ class MainActivity: FlutterActivity() {
                 }
                 "startHealthMonitoring" -> {
                     try {
-                        // 심박수 측정 시작
-                        MainApplication.manager.cmdGet77()
-                        // 혈중산소 측정 시작
-                        MainApplication.manager.cmdGet81()
-                        // 현재 걸음수 요청
-                        MainApplication.manager.cmdGet17()
+                        startHealthMonitoring()
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("MONITORING_FAILED", e.message, null)
@@ -66,12 +68,13 @@ class MainActivity: FlutterActivity() {
                 }
                 "measureHealthData" -> {
                     try {
-                        // 심박수 측정 시작
                         MainApplication.manager.cmdGet77()
-                        // 혈중산소 측정 시작
-                        MainApplication.manager.cmdGet81()
-                        // 현재 걸음수 요청
-                        MainApplication.manager.cmdGet17()
+                        mainHandler.postDelayed({
+                            MainApplication.manager.cmdGet81()
+                            mainHandler.postDelayed({
+                                MainApplication.manager.cmdGet17()
+                            }, 20000)
+                        }, 20000)
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("MEASUREMENT_FAILED", e.message, null)
@@ -132,6 +135,29 @@ class MainActivity: FlutterActivity() {
                 "type" to type,
                 "value" to value
             ))
+        }
+    }
+
+    private fun startHealthMonitoring() {
+        timer = Timer().apply {
+            schedule(object : TimerTask() {
+                override fun run() {
+                    if (MainApplication.instance.isConnectedState()) {
+                        try {
+                            // 순차(지연) 호출 – 3초 간격 예
+                            MainApplication.manager.cmdGet77()
+                            mainHandler.postDelayed({
+                                MainApplication.manager.cmdGet81()
+                                mainHandler.postDelayed({
+                                    MainApplication.manager.cmdGet17()
+                                }, 20000)
+                            }, 20000)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error during health monitoring: ${e.message}")
+                        }
+                    }
+                }
+            }, 0, 30 * 60 * 1000)   // 30 분마다 반복
         }
     }
 }
