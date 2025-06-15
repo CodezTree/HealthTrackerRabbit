@@ -6,6 +6,8 @@ import 'heart_detail_screen.dart';
 import 'steps_detail_screen.dart';
 import 'oxygen_detail_screen.dart';
 import 'dart:ui';
+import 'package:rabbithole_health_tracker_new/providers/connection_provider.dart';
+import 'package:rabbithole_health_tracker_new/providers/ble_provider.dart';
 
 class MainScreen extends ConsumerWidget {
   const MainScreen({super.key});
@@ -42,6 +44,8 @@ class MainScreen extends ConsumerWidget {
     final now = DateTime.now();
     final dateText =
         "${now.year}.${now.month.toString().padLeft(2, '0')}.${now.day.toString().padLeft(2, '0')}";
+
+    final isConnected = ref.watch(connectionStateProvider);
 
     // 심박수에 따른 색상 결정
     Color getHeartColor(int bpm) {
@@ -681,6 +685,57 @@ class MainScreen extends ConsumerWidget {
           ),
           _ExpandableInfoSheet(battery: battery, isCharging: isCharging),
         ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+          ),
+          child: Row(
+            children: [
+              Icon(
+                isConnected
+                    ? Icons.bluetooth_connected
+                    : Icons.bluetooth_disabled,
+                color: isConnected ? Colors.blue : Colors.grey,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isConnected ? '링이 연결되었습니다.' : '링이 연결되지 않았습니다.',
+                  style: TextStyle(
+                    color: isConnected ? Colors.black : Colors.grey,
+                  ),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: isConnected
+                    ? () async {
+                        final bleService = ref.read(bleServiceProvider);
+                        try {
+                          await bleService.startHealthMonitoring();
+                          // 측정 결과는 이벤트 채널로 전달되므로 별도 처리 없음
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('측정을 시작했습니다.')),
+                            );
+                          }
+                        } catch (_) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('측정 시작에 실패했습니다.')),
+                            );
+                          }
+                        }
+                      }
+                    : null,
+                child: const Text('측정'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

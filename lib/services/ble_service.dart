@@ -5,6 +5,7 @@ import '../utils/device_storage.dart';
 import '../services/background_service.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
+import '../providers/connection_provider.dart';
 
 class BleService {
   final Ref ref;
@@ -16,6 +17,9 @@ class BleService {
 
   BluetoothDevice? _device;
   StreamSubscription? _dataSubscription;
+
+  // SR08 Ring Service UUID (primary)
+  static const String SERVICE_UUID = "0000ff01-0000-1000-8000-00805f9b34fb";
 
   bool get isConnected => _device != null;
 
@@ -39,6 +43,9 @@ class BleService {
         await DeviceStorage.saveDeviceInfo(macAddress, 'SR08');
       }
 
+      // 연결 시도한 기기의 상태를 저장 (성공을 가정)
+      ref.read(connectionStateProvider.notifier).state = true;
+
       // 연결 성공 후 데이터 수신 리스너 설정
       _setupDataListener();
 
@@ -53,9 +60,15 @@ class BleService {
     _dataSubscription?.cancel();
     _dataSubscription = eventChannel.receiveBroadcastStream().listen(
       (dynamic data) {
-        if (data is Map) {
-          final type = data['type'] as String;
-          final value = data['value'] as int;
+        if (data is! Map || data['type'] == null) return;
+
+        final String type = data['type'] as String;
+
+        // health data events expect an int 'value'
+        if (type == 'heart' || type == 'oxygen' || type == 'steps') {
+          final dynamic v = data['value'];
+          if (v is! int) return; // 잘못된 데이터 skip
+          final int value = v;
 
           final healthData = ref.read(healthDataProvider.notifier);
           final latest = ref.read(healthDataProvider).latest;
@@ -98,6 +111,20 @@ class BleService {
               );
               break;
           }
+        } else if (type == 'connection') {
+          // 연결 상태 이벤트 처리 (0: disconnected, 2: connected 등)
+          final int? state = data['state'] as int?;
+          if (state != null) {
+            if (state == 0) {
+              _device = null;
+              ref.read(connectionStateProvider.notifier).state = false;
+            } else if (state == 2) {
+              // 연결 유지 플래그만 유지 (필요 시)
+              ref.read(connectionStateProvider.notifier).state = true;
+            }
+          }
+        } else if (type == 'battery') {
+          // 배터리 low 등 다른 상태
         }
       },
       onError: (error) {
@@ -127,12 +154,25 @@ class BleService {
   }
 
   Future<void> startScan(Function(BluetoothDevice) onDeviceFound) async {
+    // 스캔을 시작하고, 결과를 서비스 UUID 또는 기기명으로 필터링합니다.
     FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
 
     FlutterBluePlus.scanResults.listen((results) {
       for (ScanResult r in results) {
-        if (r.advertisementData.advName.contains("SR08") ||
-            r.device.name.contains("SR08")) {
+        final advData = r.advertisementData;
+
+        final bool matchByServiceUuid = advData.serviceUuids.any(
+          (uuid) => uuid.toString().toLowerCase() == SERVICE_UUID,
+        );
+
+        final nameLower =
+            (advData.advName.isNotEmpty ? advData.advName : r.device.name)
+                .toLowerCase();
+
+        final bool matchByName =
+            nameLower.startsWith("sr") || nameLower.contains("sr08");
+
+        if (matchByServiceUuid || matchByName) {
           onDeviceFound(r.device);
           FlutterBluePlus.stopScan();
         }
@@ -154,6 +194,7 @@ class BleService {
       _dataSubscription?.cancel();
       await BackgroundService.cancelPeriodicTask();
       print("[BLE] disconnect(): 연결 해제 완료");
+      ref.read(connectionStateProvider.notifier).state = false;
     } catch (e) {
       print('Failed to disconnect: $e');
       rethrow;
