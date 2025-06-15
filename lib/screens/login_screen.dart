@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rabbithole_health_tracker_new/screens/pairing_screen.dart';
 import '../services/api_service.dart';
 import '../utils/token_storage.dart';
 import 'main_screen.dart';
@@ -16,6 +17,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _pwController = TextEditingController();
   bool _isLoading = false;
   String? _error;
+  bool _checkingToken = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _autoLogin();
+  }
+
+  Future<void> _autoLogin() async {
+    final success = await ApiService.refreshTokenIfAvailable();
+    if (success && mounted) {
+      final userId = await TokenStorage.getUserId();
+      if (userId != null) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => PairingScreen(userId: userId)),
+        );
+        return;
+      }
+    }
+    // If no auto‑login, show the login form
+    setState(() => _checkingToken = false);
+  }
 
   Future<void> _login() async {
     setState(() {
@@ -27,19 +51,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final pw = _pwController.text.trim();
 
     try {
-      final token = await ApiService.login(id, pw);
-      await TokenStorage.saveToken(token);
+      final tokens = await ApiService.login(id, pw);
 
       if (context.mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const MainScreen()),
+          MaterialPageRoute(
+            builder: (_) => PairingScreen(userId: tokens['userId']!),
+          ),
         );
       }
     } catch (e) {
       setState(() {
         _error = '로그인 실패: ${e.toString()}';
       });
+      print(_error);
     } finally {
       setState(() {
         _isLoading = false;
@@ -49,6 +75,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_checkingToken) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     final size = MediaQuery.of(context).size;
 
     return Scaffold(
@@ -100,13 +130,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const IconTextField(
+                IconTextField(
+                  controller: _idController,
                   icon: Icons.person_outline,
                   label: "아이디",
                   hintText: "USERNAME",
                 ),
                 const SizedBox(height: 16),
-                const IconTextField(
+                IconTextField(
+                  controller: _pwController,
                   icon: Icons.lock_outline,
                   label: "패스워드",
                   hintText: "PASSWORD",
@@ -125,16 +157,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         borderRadius: BorderRadius.circular(6),
                       ),
                     ),
-                    onPressed: () {},
-                    child: const Text(
-                      "로그인",
-                      style: TextStyle(
-                        fontFamily: 'Pretendard',
-                        fontVariations: [FontVariation('wght', 600)],
-                        fontSize: 18,
-                        color: Colors.white,
-                      ),
-                    ),
+                    onPressed: _isLoading ? null : _login,
+                    child: _isLoading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text(
+                            "로그인",
+                            style: TextStyle(
+                              fontFamily: 'Pretendard',
+                              fontVariations: [FontVariation('wght', 600)],
+                              fontSize: 18,
+                              color: Colors.white,
+                            ),
+                          ),
                   ),
                 ),
               ],
@@ -152,12 +186,14 @@ class IconTextField extends StatelessWidget {
   final String label;
   final String hintText;
   final bool obscure;
+  final TextEditingController controller;
 
   const IconTextField({
     super.key,
     required this.icon,
     required this.label,
     required this.hintText,
+    required this.controller,
     this.obscure = false,
   });
 
@@ -182,6 +218,7 @@ class IconTextField extends StatelessWidget {
           ],
         ),
         TextField(
+          controller: controller,
           obscureText: obscure,
           style: const TextStyle(
             fontFamily: 'Pretendard',

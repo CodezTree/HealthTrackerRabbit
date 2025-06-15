@@ -5,7 +5,9 @@ import '../providers/ble_provider.dart';
 import 'main_screen.dart';
 
 class PairingScreen extends ConsumerStatefulWidget {
-  const PairingScreen({super.key});
+  final String userId;
+
+  const PairingScreen({super.key, required this.userId});
 
   @override
   ConsumerState<PairingScreen> createState() => _PairingScreenState();
@@ -20,7 +22,8 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   @override
   void initState() {
     super.initState();
-    _startScan(); // 화면이 시작되면 자동으로 스캔 시작
+    print('🟢 로그인한 유저: ${widget.userId}');
+    _startScan();
   }
 
   void _startScan() async {
@@ -36,20 +39,22 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       await bleService.startScan((device) {
         if (!_devices.any((d) => d.device.remoteId == device.remoteId)) {
           setState(() {
-            _devices.add(ScanResult(
-              device: device,
-              advertisementData: AdvertisementData(
-                advName: device.platformName,
-                txPowerLevel: -1,
-                connectable: true,
-                manufacturerData: {},
-                serviceData: {},
-                serviceUuids: [],
-                appearance: null,
+            _devices.add(
+              ScanResult(
+                device: device,
+                advertisementData: AdvertisementData(
+                  advName: device.platformName,
+                  txPowerLevel: -1,
+                  connectable: true,
+                  manufacturerData: {},
+                  serviceData: {},
+                  serviceUuids: [],
+                  appearance: null,
+                ),
+                rssi: -50,
+                timeStamp: DateTime.now(),
               ),
-              rssi: -50,
-              timeStamp: DateTime.now(),
-            ));
+            );
           });
         }
       });
@@ -85,9 +90,9 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         hasFailed = true;
       });
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('연결 실패: ${e.toString()}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('연결 실패: ${e.toString()}')));
       }
     }
   }
@@ -145,13 +150,16 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                 itemBuilder: (context, index) {
                   final device = _devices[index].device;
                   return ListTile(
-                    title: Text(device.platformName.isEmpty
-                        ? 'Unknown Device'
-                        : device.platformName),
+                    title: Text(
+                      device.platformName.isEmpty
+                          ? 'Unknown Device'
+                          : device.platformName,
+                    ),
                     subtitle: Text(device.remoteId.str),
                     trailing: ElevatedButton(
-                      onPressed:
-                          isConnecting ? null : () => _connectToDevice(device),
+                      onPressed: isConnecting
+                          ? null
+                          : () => _connectToDevice(device),
                       child: Text(isConnecting ? '연결 중...' : '연결'),
                     ),
                   );

@@ -29,7 +29,7 @@ void main() async {
 
   // Testing Without BLE
   const bool testWithoutBLE = false;
-  const bool skipLogin = true;
+  const bool skipLogin = false;
 
   final reconnected = testWithoutBLE
       ? true
@@ -66,7 +66,7 @@ class MyApp extends StatelessWidget {
       title: 'Health Tracker',
       theme: ThemeData(primarySwatch: Colors.blue),
       home: skipLogin
-          ? const PairingScreen()
+          ? const PairingScreen(userId: "TEST123")
           : (initialConnected ? const MainScreen() : const LoginScreen()),
     );
   }
