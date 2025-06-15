@@ -65,18 +65,72 @@ class MainApplication : Application(), BTMGattCallBack, AnalyticalDataCallBack {
         Log.d(TAG, "Received data: cmdKey=$cmdKey, data=$jsonObject")
         
         try {
-            when (cmdKey) {
-                "GET77" -> { // 심박수
-                    val heartRate = jsonObject.getInt("heart_rate")
-                    sendHealthData("heart", heartRate)
+            // 일부 펌웨어는 "GET,77" 형태로 콤마가 포함돼 전달되므로, 통일된 비교를 위해 제거
+            val normalizedKey = cmdKey.replace(",", "")
+
+            when (normalizedKey) {
+                "GET77" -> { // 심박수 (GET77 or GET,77)
+                    val heartRate: Int? = when {
+                        jsonObject.has("heart_rate") -> jsonObject.optInt("heart_rate", -1)
+                        jsonObject.has("measure_heart_rate") -> jsonObject.optString("measure_heart_rate").toIntOrNull() ?: -1
+                        else -> -1
+                    }
+                    if (heartRate != null && heartRate >= 0) {
+                        sendHealthData("heart", heartRate)
+                    } else {
+                        Log.w(TAG, "GET77 응답에서 심박수를 찾지 못했습니다: $jsonObject")
+                    }
                 }
-                "GET81" -> { // 혈중산소
-                    val spo2 = jsonObject.getInt("spo2")
-                    sendHealthData("oxygen", spo2)
+                "GET81" -> { // 혈중산소 (GET81 or GET,81)
+                    val bloodOxygenString: String? = when {
+                        jsonObject.has("spo2") -> jsonObject.optString("spo2")
+                        jsonObject.has("measure_blood_oxygen") -> jsonObject.optString("measure_blood_oxygen")
+                        else -> "|"
+                    }
+
+                    val bloodOxygen = bloodOxygenString?.split("|")?.getOrNull(1)?.toIntOrNull() ?: -1
+                    if (bloodOxygen != null && bloodOxygen >= 0) {
+                        sendHealthData("oxygen", bloodOxygen)
+                    } else {
+                        Log.w(TAG, "GET81 응답에서 SpO2 값을 찾지 못했습니다: $jsonObject")
+                    }
                 }
-                "GET17" -> { // 걸음수
-                    val steps = jsonObject.getInt("step_count")
-                    sendHealthData("steps", steps)
+                "GET17", "GET18" -> { // 걸음수 (펌웨어 버전에 따라 GET17/GET18 또는 GET,17/GET,18)
+                    val steps: Int? = if (jsonObject.has("step_count")) {
+                        jsonObject.optInt("step_count", -1)
+                    } else {
+                        null
+                    }
+
+                    if (steps != null && steps >= 0) {
+                        sendHealthData("steps", steps)
+                    } else {
+                        Log.w(TAG, "$cmdKey 응답에서 걸음수를 찾지 못했습니다: $jsonObject")
+                    }
+                }
+                "GET87" -> { // 종합 건강 모니터링 (배열)
+                    val arr = jsonObject.optJSONArray("array")
+                    if (arr != null) {
+                        for (i in 0 until arr.length()) {
+                            val item = arr.getJSONObject(i)
+                            // Flutter 로 그대로 전달 (문자열)
+                            mainHandler.post {
+                                eventSink?.success(mapOf(
+                                    "type" to "health87",
+                                    "entry" to item.toString()
+                                ))
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "GET87 배열이 비어있습니다: $jsonObject")
+                    }
+                }
+                "GET88" -> { // 배터리 & 충전 상태
+                    Log.d(TAG, "Got Battery State")
+                    val battery = jsonObject.optInt("battery", -1)
+                    val chargingState = jsonObject.optInt("charging_state", -1)
+                    if (battery >= 0) sendHealthData("battery", battery)
+                    if (chargingState >= 0) sendHealthData("chargingState", chargingState)
                 }
             }
         } catch (e: Exception) {

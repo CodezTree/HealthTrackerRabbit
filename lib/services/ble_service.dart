@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import '../providers/connection_provider.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class BleService {
   final Ref ref;
@@ -18,9 +19,28 @@ class BleService {
 
   BluetoothDevice? _device;
   StreamSubscription? _dataSubscription;
+  Timer? _batteryTimer;
 
   // SR08 Ring Service UUID (primary)
   static const String SERVICE_UUID = "0000ff01-0000-1000-8000-00805f9b34fb";
+
+  // 재연결 로직 관리
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 3;
+  static const Duration _reconnectDelay = Duration(seconds: 3);
+
+  void _scheduleReconnect() {
+    if (_reconnectAttempts >= _maxReconnectAttempts) return;
+    _reconnectAttempts++;
+    Future.delayed(_reconnectDelay * _reconnectAttempts, () async {
+      final success = await tryReconnectFromSavedDevice();
+      if (!success) {
+        _scheduleReconnect();
+      } else {
+        _reconnectAttempts = 0; // reset on success
+      }
+    });
+  }
 
   bool get isConnected => _device != null;
 
@@ -40,17 +60,27 @@ class BleService {
     try {
       await platform.invokeMethod('connectDevice', {'macAddress': macAddress});
 
+      // 연결 성공 후 데이터 수신 리스너 설정
+      _setupDataListener();
+
       if (save) {
         await DeviceStorage.saveDeviceInfo(macAddress, 'SR08');
       }
 
-      // 연결 시도한 기기의 상태를 저장 (성공을 가정)
-      ref.read(connectionStateProvider.notifier).state = true;
+      // 최초 1회만 초기 설정 명령 전송
+      final prefs = await SharedPreferences.getInstance();
+      const initFlagKey = 'initial_setup_done';
+      final done = prefs.getBool(initFlagKey) ?? false;
+      if (!done) {
+        await platform.invokeMethod('initialSetup');
+        await prefs.setBool(initFlagKey, true);
+      }
 
-      // 연결 성공 후 데이터 수신 리스너 설정
-      _setupDataListener();
+      // await BackgroundService.registerPeriodicTask();
 
-      await BackgroundService.registerPeriodicTask();
+      // 실제 연결 완료 대기
+      final ok = await waitForConnection(timeout: const Duration(seconds: 10));
+      if (!ok) throw Exception('Connection timeout');
     } catch (e) {
       print('Failed to connect: $e');
       rethrow;
@@ -121,13 +151,48 @@ class BleService {
             if (state == 0) {
               _device = null;
               ref.read(connectionStateProvider.notifier).state = false;
+              _stopBatteryTimer();
             } else if (state == 2) {
               // 연결 유지 플래그만 유지 (필요 시)
               ref.read(connectionStateProvider.notifier).state = true;
+              _reconnectAttempts = 0;
+              _startBatteryTimer();
             }
           }
-        } else if (type == 'battery') {
-          // 배터리 low 등 다른 상태
+        } else if (type == 'battery' || type == 'chargingState') {
+          final dynamic v = data['value'];
+          if (v is! int) return;
+          final int value = v;
+
+          final healthData = ref.read(healthDataProvider.notifier);
+          final latest = ref.read(healthDataProvider).latest;
+
+          if (type == 'battery') {
+            healthData.updateHealthData(
+              heartRate: latest?.heartRate ?? 0,
+              spo2: latest?.spo2 ?? 0,
+              stepCount: latest?.stepCount ?? 0,
+              battery: value,
+              chargingState: latest?.chargingState ?? 0,
+              sleepHours: latest?.sleepHours ?? 0,
+              sportsTime: latest?.sportsTime ?? 0,
+              screenStatus: latest?.screenStatus ?? 0,
+            );
+          } else {
+            healthData.updateHealthData(
+              heartRate: latest?.heartRate ?? 0,
+              spo2: latest?.spo2 ?? 0,
+              stepCount: latest?.stepCount ?? 0,
+              battery: latest?.battery ?? 100,
+              chargingState: value,
+              sleepHours: latest?.sleepHours ?? 0,
+              sportsTime: latest?.sportsTime ?? 0,
+              screenStatus: latest?.screenStatus ?? 0,
+            );
+          }
+        } else if (type == 'health87') {
+          final entry = data['entry'];
+          debugPrint('[GET87] entry: $entry');
         }
       },
       onError: (error) {
@@ -230,6 +295,145 @@ class BleService {
     } catch (e) {
       print('Failed to measure health data: $e');
       rethrow;
+    }
+  }
+
+  Future<void> enableAutoMonitoring(bool enable) async {
+    try {
+      await platform.invokeMethod('enableAutoMonitoring', {
+        'state': enable ? 1 : 0,
+      });
+    } catch (e) {
+      print('Failed to set auto monitoring: $e');
+    }
+  }
+
+  Future<void> requestCurrentData() async {
+    try {
+      await platform.invokeMethod('requestCurrentData');
+    } catch (e) {
+      print('Failed to request current data: $e');
+    }
+  }
+
+  Future<void> requestBatteryStatus() async {
+    try {
+      await platform.invokeMethod('requestBatteryStatus');
+    } catch (e) {
+      print('Failed to request battery status: $e');
+    }
+  }
+
+  Future<void> requestHalfHourHeartData({DateTime? date}) async {
+    try {
+      final ts =
+          (date ?? DateTime.now())
+              .copyWith(hour: 0, minute: 0, second: 0, millisecond: 0)
+              .millisecondsSinceEpoch ~/
+          1000;
+      await platform.invokeMethod('requestHalfHourHeartData', {
+        'timestamp': ts,
+      });
+    } catch (e) {
+      print('Failed to request 30min heart data: $e');
+    }
+  }
+
+  Future<void> readBatteryLevelFromService() async {
+    if (_device == null) return;
+    try {
+      List<BluetoothService> services = await _device!.discoverServices();
+      BluetoothCharacteristic? char;
+      for (var s in services) {
+        if (s.uuid.toString().toLowerCase() ==
+            "0000180f-0000-1000-8000-00805f9b34fb") {
+          for (var c in s.characteristics) {
+            if (c.uuid.toString().toLowerCase() ==
+                "00002a19-0000-1000-8000-00805f9b34fb") {
+              char = c;
+              break;
+            }
+          }
+          if (char != null) {
+            final val = await char.read();
+            if (val.isNotEmpty) {
+              final int level = val[0];
+              final healthData = ref.read(healthDataProvider.notifier);
+              final latest = ref.read(healthDataProvider).latest;
+              healthData.updateHealthData(
+                heartRate: latest?.heartRate ?? 0,
+                spo2: latest?.spo2 ?? 0,
+                stepCount: latest?.stepCount ?? 0,
+                battery: level,
+                chargingState: latest?.chargingState ?? 0,
+                sleepHours: latest?.sleepHours ?? 0,
+                sportsTime: latest?.sportsTime ?? 0,
+                screenStatus: latest?.screenStatus ?? 0,
+              );
+            }
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      print('Failed to read battery characteristic: $e');
+    }
+  }
+
+  void _startBatteryTimer() {
+    _batteryTimer?.cancel();
+    _batteryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      readBatteryLevelFromService();
+    });
+  }
+
+  void _stopBatteryTimer() {
+    _batteryTimer?.cancel();
+    _batteryTimer = null;
+  }
+
+  Future<bool> waitForConnection({
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    if (isConnected) return true;
+    final completer = Completer<bool>();
+    late final ProviderSubscription<bool> sub;
+    sub = ref.listen<bool>(connectionStateProvider, (prev, next) {
+      if (next) {
+        sub.close();
+        completer.complete(true);
+      }
+    });
+    Future.delayed(timeout, () {
+      if (!completer.isCompleted) {
+        sub.close();
+        completer.complete(false);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<void> startInstantHealthMeasurement() async {
+    try {
+      await platform.invokeMethod('instantHealthMeasurement');
+    } catch (e) {
+      print('Failed instant measurement: $e');
+    }
+  }
+
+  Future<void> requestMonitoringData() async {
+    try {
+      await platform.invokeMethod('requestMonitoringData');
+    } catch (e) {
+      print('Failed to request monitoring data: $e');
+    }
+  }
+
+  Future<void> resetDeviceData() async {
+    try {
+      await platform.invokeMethod('resetDeviceData');
+    } catch (e) {
+      print('Failed to reset device data: $e');
     }
   }
 }

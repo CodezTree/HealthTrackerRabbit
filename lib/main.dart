@@ -8,6 +8,7 @@ import 'package:rabbithole_health_tracker_new/services/local_db_service.dart';
 import 'screens/login_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'services/background_service.dart';
+import 'package:rabbithole_health_tracker_new/providers/health_provider.dart';
 
 Future<void> requestPermissions() async {
   await [
@@ -23,9 +24,13 @@ void main() async {
   await LocalDbService.init();
   await BackgroundService.initialize();
 
+  // Provider container to use before runApp
   final container =
       ProviderContainer(); // for accessing providers before runApp
   final bleService = container.read(bleServiceProvider);
+
+  // Load latest saved health data so MainScreen shows values immediately
+  await container.read(healthDataProvider.notifier).loadInitialData();
 
   // Testing Without BLE
   const bool testWithoutBLE = false;

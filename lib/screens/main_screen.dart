@@ -82,6 +82,42 @@ class MainScreen extends ConsumerWidget {
                       clipBehavior: Clip.none,
                       children: [
                         Positioned(
+                          left: 0,
+                          child: IconButton(
+                            icon: const Icon(
+                              Icons.history,
+                              color: Colors.white,
+                            ),
+                            onPressed: () async {
+                              final bleService = ref.read(bleServiceProvider);
+
+                              if (!isConnected) {
+                                final success = await bleService
+                                    .tryReconnectFromSavedDevice();
+                                if (!success) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('재연결에 실패했습니다.'),
+                                      ),
+                                    );
+                                  }
+                                  return;
+                                }
+                              }
+
+                              await bleService.requestMonitoringData();
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('건강 모니터링 데이터를 요청했습니다.'),
+                                  ),
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                        Positioned(
                           right: 0,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
@@ -710,29 +746,62 @@ class MainScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+              // 측정 버튼 수정 -> 바로 측정
               ElevatedButton(
-                onPressed: isConnected
-                    ? () async {
-                        final bleService = ref.read(bleServiceProvider);
-                        try {
-                          await bleService.startHealthMonitoring();
-                          // 측정 결과는 이벤트 채널로 전달되므로 별도 처리 없음
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('측정을 시작했습니다.')),
-                            );
-                          }
-                        } catch (_) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('측정 시작에 실패했습니다.')),
-                            );
-                          }
-                        }
-                      }
-                    : null,
-                child: const Text('측정'),
+                onPressed: () async {
+                  final bleService = ref.read(bleServiceProvider);
+
+                  // 저장된 정보로 재연결 시도(이미 연결돼 있어도 문제 없음)
+                  await bleService.tryReconnectFromSavedDevice();
+
+                  // 바로 측정 요청
+                  await bleService.startInstantHealthMeasurement();
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('즉시 측정을 시작했습니다.')),
+                    );
+                  }
+                },
+                child: const Text('바로 측정'),
               ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: () async {
+                  final bleService = ref.read(bleServiceProvider);
+
+                  await bleService.tryReconnectFromSavedDevice();
+
+                  try {
+                    await bleService.requestCurrentData();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('현재 데이터를 요청했습니다.')),
+                      );
+                    }
+                  } catch (_) {}
+                },
+                child: const Text('수신'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: () async {
+                  final bleService = ref.read(bleServiceProvider);
+
+                  await bleService.tryReconnectFromSavedDevice();
+
+                  try {
+                    await bleService.resetDeviceData();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('기기 데이터를 초기화했습니다.')),
+                      );
+                    }
+                  } catch (_) {}
+                },
+                child: const Text('초기화'),
+              ),
+              const SizedBox(width: 8),
             ],
           ),
         ),

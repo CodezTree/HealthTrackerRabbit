@@ -72,9 +72,9 @@ class MainActivity: FlutterActivity() {
                         mainHandler.postDelayed({
                             MainApplication.manager.cmdGet81()
                             mainHandler.postDelayed({
-                                MainApplication.manager.cmdGet17()
-                            }, 20000)
-                        }, 20000)
+                                MainApplication.manager.cmdGet18()
+                            }, 1000)
+                        }, 1000)
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("MEASUREMENT_FAILED", e.message, null)
@@ -107,6 +107,102 @@ class MainActivity: FlutterActivity() {
                         }
                     } catch (e: Exception) {
                         result.error("SERVICE_STOP_FAILED", e.message, null)
+                    }
+                }
+                "enableAutoMonitoring" -> {
+                    val on = call.argument<Int>("state") ?: 1
+                    try {
+                        MainApplication.manager.cmdSet89(on)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("ENABLE_AUTO_FAILED", e.message, null)
+                    }
+                }
+                "requestCurrentData" -> {
+                    try {
+                        MainApplication.manager.cmdGet17()
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("CURRENT_DATA_FAILED", e.message, null)
+                    }
+                }
+                "requestBatteryStatus" -> {
+                    try {
+                        MainApplication.manager.cmdGet88()
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("BATTERY_DATA_FAILED", e.message, null)
+                    }
+                }
+                "requestHalfHourHeartData" -> {
+                    val ts = (call.argument<Number>("timestamp")?.toLong()) ?: run {
+                        // default: today 00:00:00
+                        val cal = java.util.Calendar.getInstance()
+                        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                        cal.set(java.util.Calendar.MINUTE, 0)
+                        cal.set(java.util.Calendar.SECOND, 0)
+                        cal.set(java.util.Calendar.MILLISECOND, 0)
+                        cal.timeInMillis / 1000
+                    }
+                    try {
+                        MainApplication.manager.cmdGet80(ts)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("GET80_FAILED", e.message, null)
+                    }
+                }
+                "initialSetup" -> {
+                    try {
+                        MainApplication.manager.cmdGet66()
+                        mainHandler.postDelayed({
+                            MainApplication.manager.cmdSet15(1)
+                            mainHandler.postDelayed({
+                                MainApplication.manager.cmdSet46(0)
+                                mainHandler.postDelayed({
+                                    MainApplication.manager.cmdSet45(this@MainActivity)
+                                    mainHandler.postDelayed({
+                                        MainApplication.manager.cmdGet0()
+                                        mainHandler.postDelayed({
+                                            MainApplication.manager.cmdSet89(1)
+                                        }, 500)
+                                    }, 500)
+                                }, 500)
+                            }, 500)
+                        }, 500)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("INIT_SETUP_FAILED", e.message, null)
+                    }
+                }
+                "instantHealthMeasurement" -> {
+                    try {
+                        MainApplication.manager.cmdGet77()
+                        mainHandler.postDelayed({
+                            MainApplication.manager.cmdGet81()
+                            mainHandler.postDelayed({
+                                MainApplication.manager.cmdGet18()
+                            }, 1000)
+                        }, 1000)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("INSTANT_MEASURE_FAILED", e.message, null)
+                    }
+                }
+                "requestMonitoringData" -> {
+                    try {
+                        MainApplication.manager.cmdGet87()
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("GET87_FAILED", e.message, null)
+                    }
+                }
+                "resetDeviceData" -> {
+                    try {
+                        // MainApplication.manager.cmdSet90()
+                        MainApplication.manager.cmdGet66()
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SET90_FAILED", e.message, null)
                     }
                 }
                 else -> result.notImplemented()
@@ -149,9 +245,9 @@ class MainActivity: FlutterActivity() {
                             mainHandler.postDelayed({
                                 MainApplication.manager.cmdGet81()
                                 mainHandler.postDelayed({
-                                    MainApplication.manager.cmdGet17()
-                                }, 20000)
-                            }, 20000)
+                                    MainApplication.manager.cmdGet18()
+                                }, 1000)
+                            }, 1000)
                         } catch (e: Exception) {
                             Log.e(TAG, "Error during health monitoring: ${e.message}")
                         }
@@ -160,4 +256,6 @@ class MainActivity: FlutterActivity() {
             }, 0, 30 * 60 * 1000)   // 30 분마다 반복
         }
     }
+
+    // (onConnected 콜백은 MainApplication에서 처리합니다)
 }
