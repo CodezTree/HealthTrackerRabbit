@@ -67,6 +67,14 @@ class BleService {
         await DeviceStorage.saveDeviceInfo(macAddress, 'SR08');
       }
 
+      print("실제 완료 대기");
+
+      // 실제 연결 완료 대기
+      final ok = await waitForConnection(timeout: const Duration(seconds: 10));
+      if (!ok) throw Exception('Connection timeout');
+
+      print("연결 됨. 최초 초기 설정 명령 전송 중...");
+
       // 최초 1회만 초기 설정 명령 전송
       final prefs = await SharedPreferences.getInstance();
       const initFlagKey = 'initial_setup_done';
@@ -77,10 +85,7 @@ class BleService {
       }
 
       // await BackgroundService.registerPeriodicTask();
-
-      // 실제 연결 완료 대기
-      final ok = await waitForConnection(timeout: const Duration(seconds: 10));
-      if (!ok) throw Exception('Connection timeout');
+      print("초기 설정 완료");
     } catch (e) {
       print('Failed to connect: $e');
       rethrow;
@@ -159,7 +164,7 @@ class BleService {
               _startBatteryTimer();
             }
           }
-        } else if (type == 'battery' || type == 'chargingState') {
+        } else if (type == 'battery') {
           final dynamic v = data['value'];
           if (v is! int) return;
           final int value = v;
@@ -167,29 +172,16 @@ class BleService {
           final healthData = ref.read(healthDataProvider.notifier);
           final latest = ref.read(healthDataProvider).latest;
 
-          if (type == 'battery') {
-            healthData.updateHealthData(
-              heartRate: latest?.heartRate ?? 0,
-              spo2: latest?.spo2 ?? 0,
-              stepCount: latest?.stepCount ?? 0,
-              battery: value,
-              chargingState: latest?.chargingState ?? 0,
-              sleepHours: latest?.sleepHours ?? 0,
-              sportsTime: latest?.sportsTime ?? 0,
-              screenStatus: latest?.screenStatus ?? 0,
-            );
-          } else {
-            healthData.updateHealthData(
-              heartRate: latest?.heartRate ?? 0,
-              spo2: latest?.spo2 ?? 0,
-              stepCount: latest?.stepCount ?? 0,
-              battery: latest?.battery ?? 100,
-              chargingState: value,
-              sleepHours: latest?.sleepHours ?? 0,
-              sportsTime: latest?.sportsTime ?? 0,
-              screenStatus: latest?.screenStatus ?? 0,
-            );
-          }
+          healthData.updateHealthData(
+            heartRate: latest?.heartRate ?? 0,
+            spo2: latest?.spo2 ?? 0,
+            stepCount: latest?.stepCount ?? 0,
+            battery: value,
+            chargingState: latest?.chargingState ?? 0,
+            sleepHours: latest?.sleepHours ?? 0,
+            sportsTime: latest?.sportsTime ?? 0,
+            screenStatus: latest?.screenStatus ?? 0,
+          );
         } else if (type == 'health87') {
           final entry = data['entry'];
           debugPrint('[GET87] entry: $entry');

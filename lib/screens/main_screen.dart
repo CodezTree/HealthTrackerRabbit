@@ -750,11 +750,23 @@ class MainScreen extends ConsumerWidget {
               ElevatedButton(
                 onPressed: () async {
                   final bleService = ref.read(bleServiceProvider);
+                  final isConnectedNow = ref.read(connectionStateProvider);
 
-                  // 저장된 정보로 재연결 시도(이미 연결돼 있어도 문제 없음)
-                  await bleService.tryReconnectFromSavedDevice();
+                  // Attempt reconnection only when not connected
+                  if (!isConnectedNow) {
+                    final success = await bleService
+                        .tryReconnectFromSavedDevice();
+                    if (!success) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('재연결에 실패했습니다.')),
+                        );
+                      }
+                      return;
+                    }
+                  }
 
-                  // 바로 측정 요청
+                  // Connected, request instant measurement
                   await bleService.startInstantHealthMeasurement();
 
                   if (context.mounted) {
@@ -769,8 +781,20 @@ class MainScreen extends ConsumerWidget {
               ElevatedButton(
                 onPressed: () async {
                   final bleService = ref.read(bleServiceProvider);
+                  final isConnectedNow = ref.read(connectionStateProvider);
 
-                  await bleService.tryReconnectFromSavedDevice();
+                  if (!isConnectedNow) {
+                    final success = await bleService
+                        .tryReconnectFromSavedDevice();
+                    if (!success) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('재연결에 실패했습니다.')),
+                        );
+                      }
+                      return;
+                    }
+                  }
 
                   try {
                     await bleService.requestCurrentData();
@@ -787,8 +811,20 @@ class MainScreen extends ConsumerWidget {
               ElevatedButton(
                 onPressed: () async {
                   final bleService = ref.read(bleServiceProvider);
+                  final isConnectedNow = ref.read(connectionStateProvider);
 
-                  await bleService.tryReconnectFromSavedDevice();
+                  if (!isConnectedNow) {
+                    final success = await bleService
+                        .tryReconnectFromSavedDevice();
+                    if (!success) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('재연결에 실패했습니다.')),
+                        );
+                      }
+                      return;
+                    }
+                  }
 
                   try {
                     await bleService.resetDeviceData();

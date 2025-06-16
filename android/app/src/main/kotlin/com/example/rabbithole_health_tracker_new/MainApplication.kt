@@ -10,6 +10,7 @@ import io.flutter.plugin.common.EventChannel
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import java.util.*
 
 class MainApplication : Application(), BTMGattCallBack, AnalyticalDataCallBack {
     companion object {
@@ -21,6 +22,8 @@ class MainApplication : Application(), BTMGattCallBack, AnalyticalDataCallBack {
     private var connectedState = false
     private var eventSink: EventChannel.EventSink? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var setupExpectedKey: String? = null
+    private var setupOnComplete: (() -> Unit)? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -40,6 +43,11 @@ class MainApplication : Application(), BTMGattCallBack, AnalyticalDataCallBack {
 
     fun setEventSink(sink: EventChannel.EventSink?) {
         eventSink = sink
+    }
+
+    fun waitForCmdResponse(expectedKey: String, onComplete: () -> Unit) {
+        setupExpectedKey = expectedKey.replace(",", "").uppercase(Locale.getDefault())
+        setupOnComplete = onComplete
     }
 
     // BTMGattCallBack 구현
@@ -64,6 +72,17 @@ class MainApplication : Application(), BTMGattCallBack, AnalyticalDataCallBack {
     override fun jsonObjectData(cmdKey: String, jsonObject: JSONObject) {
         Log.d(TAG, "Received data: cmdKey=$cmdKey, data=$jsonObject")
         
+        // Check if we are waiting for a particular command response (sequential setup)
+        setupExpectedKey?.let { expected ->
+            val normalizedKeyIncoming = cmdKey.replace(",", "").uppercase(Locale.getDefault())
+            if (normalizedKeyIncoming == expected) {
+                val cb = setupOnComplete
+                setupExpectedKey = null
+                setupOnComplete = null
+                cb?.let { mainHandler.post { it() } }
+            }
+        }
+
         try {
             // 일부 펌웨어는 "GET,77" 형태로 콤마가 포함돼 전달되므로, 통일된 비교를 위해 제거
             val normalizedKey = cmdKey.replace(",", "")
@@ -125,12 +144,17 @@ class MainApplication : Application(), BTMGattCallBack, AnalyticalDataCallBack {
                         Log.w(TAG, "GET87 배열이 비어있습니다: $jsonObject")
                     }
                 }
-                "GET88" -> { // 배터리 & 충전 상태
-                    Log.d(TAG, "Got Battery State")
-                    val battery = jsonObject.optInt("battery", -1)
-                    val chargingState = jsonObject.optInt("charging_state", -1)
+                "SEND24" -> { // 배터리 상태
+                    Log.d(TAG, "Got Battery State (SEND24): $jsonObject")
+
+                    // 몇몇 펌웨어는 battery, 일부는 battery_capacity 라는 문자열 필드를 사용함
+                    val battery: Int = when {
+                        jsonObject.has("battery") -> jsonObject.optInt("battery", -1)
+                        jsonObject.has("battery_capacity") -> jsonObject.optString("battery_capacity", "-1").toIntOrNull() ?: -1
+                        else -> -1
+                    }
+
                     if (battery >= 0) sendHealthData("battery", battery)
-                    if (chargingState >= 0) sendHealthData("chargingState", chargingState)
                 }
             }
         } catch (e: Exception) {

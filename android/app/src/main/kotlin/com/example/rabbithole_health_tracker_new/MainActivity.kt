@@ -120,7 +120,7 @@ class MainActivity: FlutterActivity() {
                 }
                 "requestCurrentData" -> {
                     try {
-                        MainApplication.manager.cmdGet17()
+                        MainApplication.manager.cmdGet10()
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("CURRENT_DATA_FAILED", e.message, null)
@@ -153,23 +153,7 @@ class MainActivity: FlutterActivity() {
                 }
                 "initialSetup" -> {
                     try {
-                        MainApplication.manager.cmdGet66()
-                        mainHandler.postDelayed({
-                            MainApplication.manager.cmdSet15(1)
-                            mainHandler.postDelayed({
-                                MainApplication.manager.cmdSet46(0)
-                                mainHandler.postDelayed({
-                                    MainApplication.manager.cmdSet45(this@MainActivity)
-                                    mainHandler.postDelayed({
-                                        MainApplication.manager.cmdGet0()
-                                        mainHandler.postDelayed({
-                                            MainApplication.manager.cmdSet89(1)
-                                        }, 500)
-                                    }, 500)
-                                }, 500)
-                            }, 500)
-                        }, 500)
-                        result.success(true)
+                        performInitialSetupSequence(result)
                     } catch (e: Exception) {
                         result.error("INIT_SETUP_FAILED", e.message, null)
                     }
@@ -255,6 +239,73 @@ class MainActivity: FlutterActivity() {
                 }
             }, 0, 30 * 60 * 1000)   // 30 분마다 반복
         }
+    }
+
+    /**
+     * Executes the initial setup commands in strict sequence.
+     * Each subsequent command is sent only after the previous one's response is received.
+     */
+    private fun performInitialSetupSequence(result: MethodChannel.Result) {
+        // Helper that contains the original sequential logic.
+        fun startSequence() {
+            val manager = MainApplication.manager
+
+            data class Step(val action: () -> Unit, val expectedKey: String? = null)
+
+            val steps = listOf(
+                Step(action = { manager.cmdGet66() }, expectedKey = "GET66"),
+                Step(action = { manager.cmdSet15(1) }),          // SET15 assumed no explicit response
+                Step(action = { manager.cmdSet46(0) }),          // SET46 assumed no response
+                Step(action = { manager.cmdSet45(this) }),       // SET45 assumed no response
+                Step(action = { manager.cmdGet0() }, expectedKey = "GET0"),
+                Step(action = { manager.cmdSet89(1) }),          // SET89 assumed no response
+            )
+
+            fun executeStep(index: Int) {
+                if (index >= steps.size) {
+                    result.success(true)
+                    return
+                }
+
+                val step = steps[index]
+
+                if (step.expectedKey != null) {
+                    // Wait until the specified response arrives, then move on
+                    MainApplication.instance.waitForCmdResponse(step.expectedKey) {
+                        executeStep(index + 1)
+                    }
+                    step.action.invoke()
+                } else {
+                    // No response expected – send command and immediately continue (slight delay for safety)
+                    step.action.invoke()
+                    mainHandler.postDelayed({ executeStep(index + 1) }, 400)
+                }
+            }
+
+            executeStep(0)
+        }
+
+        // If already connected, run the sequence immediately. Otherwise, wait (up to 10s).
+        if (MainApplication.instance.isConnectedState()) {
+            startSequence()
+            return
+        }
+
+        val startTime = System.currentTimeMillis()
+        val timeoutMs = 10_000L
+        val checkIntervalMs = 200L
+
+        fun waitForConnection() {
+            if (MainApplication.instance.isConnectedState()) {
+                startSequence()
+            } else if (System.currentTimeMillis() - startTime >= timeoutMs) {
+                result.error("INIT_SETUP_FAILED", "Timeout waiting for device to connect", null)
+            } else {
+                mainHandler.postDelayed({ waitForConnection() }, checkIntervalMs)
+            }
+        }
+
+        waitForConnection()
     }
 
     // (onConnected 콜백은 MainApplication에서 처리합니다)
