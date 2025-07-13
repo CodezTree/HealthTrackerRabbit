@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rabbithole_health_tracker_new/screens/pairing_screen.dart';
 import '../services/api_service.dart';
 import '../utils/token_storage.dart';
-import 'main_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});

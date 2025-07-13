@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="rabbithole_health_tracker_new"
+        android:label="태안헬스링"
         android:name=".MainApplication"
         android:icon="@mipmap/ic_launcher">
         <activity

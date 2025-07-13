@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rabbithole_health_tracker_new/providers/health_provider.dart';
 import '../utils/device_storage.dart';
 import '../services/background_service.dart';
+import '../services/api_service.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
 import '../providers/connection_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../providers/background_health_provider.dart';
 
 class BleService {
   final Ref ref;
@@ -84,8 +86,10 @@ class BleService {
         await prefs.setBool(initFlagKey, true);
       }
 
-      // await BackgroundService.registerPeriodicTask();
-      print("초기 설정 완료");
+      // 백그라운드 건강 모니터링 서비스 시작
+      await startHealthMonitoring();
+
+      print("초기 설정 및 백그라운드 모니터링 시작 완료");
     } catch (e) {
       print('Failed to connect: $e');
       rethrow;
@@ -117,7 +121,7 @@ class BleService {
                 heartRate: value,
                 spo2: latest?.spo2 ?? 0,
                 stepCount: latest?.stepCount ?? 0,
-                battery: latest?.battery ?? 100,
+                battery: latest?.battery ?? 0,
                 chargingState: latest?.chargingState ?? 0,
                 sleepHours: latest?.sleepHours ?? 0,
                 sportsTime: latest?.sportsTime ?? 0,
@@ -129,7 +133,7 @@ class BleService {
                 heartRate: latest?.heartRate ?? 0,
                 spo2: value,
                 stepCount: latest?.stepCount ?? 0,
-                battery: latest?.battery ?? 100,
+                battery: latest?.battery ?? 0,
                 chargingState: latest?.chargingState ?? 0,
                 sleepHours: latest?.sleepHours ?? 0,
                 sportsTime: latest?.sportsTime ?? 0,
@@ -141,7 +145,7 @@ class BleService {
                 heartRate: latest?.heartRate ?? 0,
                 spo2: latest?.spo2 ?? 0,
                 stepCount: value,
-                battery: latest?.battery ?? 100,
+                battery: latest?.battery ?? 0,
                 chargingState: latest?.chargingState ?? 0,
                 sleepHours: latest?.sleepHours ?? 0,
                 sportsTime: latest?.sportsTime ?? 0,
@@ -162,6 +166,15 @@ class BleService {
               ref.read(connectionStateProvider.notifier).state = true;
               _reconnectAttempts = 0;
               _startBatteryTimer();
+
+              // 백그라운드 서비스에 MAC 주소 전달
+              DeviceStorage.getDeviceInfo().then((deviceInfo) {
+                if (deviceInfo != null) {
+                  platform.invokeMethod('setLastKnownMacAddress', {
+                    'macAddress': deviceInfo['id'],
+                  });
+                }
+              });
             }
           }
         } else if (type == 'battery') {
@@ -185,6 +198,72 @@ class BleService {
         } else if (type == 'health87') {
           final entry = data['entry'];
           debugPrint('[GET87] entry: $entry');
+        } else if (type == 'device_info') {
+          // GET0 데이터 처리
+          final String? dataString = data['data'] as String?;
+          if (dataString != null) {
+            try {
+              final regex = RegExp(r'"battery_capacity":"(\d+)"');
+              final match = regex.firstMatch(dataString);
+              if (match != null) {
+                final int batteryLevel = int.parse(match.group(1)!);
+
+                final healthData = ref.read(healthDataProvider.notifier);
+                final latest = ref.read(healthDataProvider).latest;
+
+                healthData.updateHealthData(
+                  heartRate: latest?.heartRate ?? 0,
+                  spo2: latest?.spo2 ?? 0,
+                  stepCount: latest?.stepCount ?? 0,
+                  battery: batteryLevel,
+                  chargingState: latest?.chargingState ?? 0,
+                  sleepHours: latest?.sleepHours ?? 0,
+                  sportsTime: latest?.sportsTime ?? 0,
+                  screenStatus: latest?.screenStatus ?? 0,
+                );
+
+                debugPrint('[GET0] Battery capacity updated: $batteryLevel%');
+              }
+            } catch (e) {
+              debugPrint('[GET0] Failed to parse battery_capacity: $e');
+            }
+          }
+        } else if (type == 'background_data') {
+          // 백그라운드에서 수집된 데이터 처리
+          final String? dataType = data['data_type'] as String?;
+          final int? value = data['value'] as int?;
+          final String? timestamp = data['timestamp'] as String?;
+
+          if (dataType != null && value != null && timestamp != null) {
+            // 백그라운드 데이터 프로바이더로 전달
+            BackgroundHealthProvider().processBackgroundData(
+              dataType,
+              value,
+              timestamp,
+            );
+          }
+        } else if (type == 'send_background_health_data') {
+          // 백그라운드에서 수집된 데이터를 API로 전송
+          final heartRate = data['heartRate'] as int? ?? 0;
+          final spo2 = data['spo2'] as int? ?? 0;
+          final stepCount = data['stepCount'] as int? ?? 0;
+          final battery = data['battery'] as int? ?? 0;
+          final chargingState = data['chargingState'] as int? ?? 0;
+          final timestamp = data['timestamp'] as String? ?? '';
+
+          debugPrint('🟡 백그라운드 건강 데이터 API 전송 요청 수신');
+          debugPrint(
+            '📊 HR: $heartRate, SpO2: $spo2%, Steps: $stepCount, Battery: $battery%',
+          );
+
+          _sendBackgroundHealthDataToServer(
+            heartRate: heartRate,
+            spo2: spo2,
+            stepCount: stepCount,
+            battery: battery,
+            chargingState: chargingState,
+            timestamp: timestamp,
+          );
         }
       },
       onError: (error) {
@@ -195,11 +274,16 @@ class BleService {
 
   Future<void> startHealthMonitoring() async {
     try {
+      print('[BLE] 백그라운드 건강 모니터링 시작...');
       await platform.invokeMethod('startHealthMonitoring');
+
       // 백그라운드 서비스 시작
+      print('[BLE] 30분 주기 백그라운드 서비스 시작...');
       await platform.invokeMethod('startBackgroundService');
+
+      print('[BLE] ✅ 백그라운드 건강 모니터링 서비스 시작 완료');
     } catch (e) {
-      print('Failed to start health monitoring: $e');
+      print('[BLE] ❌ 백그라운드 건강 모니터링 시작 실패: $e');
       rethrow;
     }
   }
@@ -278,7 +362,7 @@ class BleService {
         'maxHeartRate': currentData?.maxHeartRate ?? 0,
         'spo2': currentData?.spo2 ?? 0,
         'stepCount': currentData?.stepCount ?? 0,
-        'battery': currentData?.battery ?? 100,
+        'battery': currentData?.battery ?? 0,
         'chargingState': currentData?.chargingState ?? 0,
         'sleepHours': currentData?.sleepHours ?? 0,
         'sportsTime': currentData?.sportsTime ?? 0,
@@ -302,7 +386,13 @@ class BleService {
 
   Future<void> requestCurrentData() async {
     try {
-      await platform.invokeMethod('requestCurrentData');
+      // 먼저 GET0 (배터리 정보)를 요청하고 약간의 지연 후 다른 데이터 요청
+      await platform.invokeMethod('requestCurrentData'); // GET0 요청
+
+      // 배터리 정보가 업데이트될 시간을 주기 위해 잠시 대기
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      await platform.invokeMethod('requestBackgroundHealthData');
     } catch (e) {
       print('Failed to request current data: $e');
     }
@@ -426,6 +516,46 @@ class BleService {
       await platform.invokeMethod('resetDeviceData');
     } catch (e) {
       print('Failed to reset device data: $e');
+    }
+  }
+
+  Future<void> testBackgroundDataCollection() async {
+    try {
+      await platform.invokeMethod('testBackgroundDataCollection');
+    } catch (e) {
+      print('Failed to test background data collection: $e');
+    }
+  }
+
+  /// 백그라운드에서 수집된 건강 데이터를 서버로 전송
+  void _sendBackgroundHealthDataToServer({
+    required int heartRate,
+    required int spo2,
+    required int stepCount,
+    required int battery,
+    required int chargingState,
+    required String timestamp,
+  }) async {
+    try {
+      debugPrint('🚀 백그라운드 건강 데이터 서버 전송 시작');
+
+      // ApiService를 import해야 합니다
+      final success = await ApiService.sendHealthData(
+        heartRate: heartRate,
+        spo2: spo2,
+        stepCount: stepCount,
+        battery: battery,
+        chargingState: chargingState,
+        timestamp: timestamp,
+      );
+
+      if (success) {
+        debugPrint('✅ 백그라운드 건강 데이터 서버 전송 성공');
+      } else {
+        debugPrint('❌ 백그라운드 건강 데이터 서버 전송 실패');
+      }
+    } catch (e) {
+      debugPrint('💥 백그라운드 건강 데이터 서버 전송 오류: $e');
     }
   }
 }

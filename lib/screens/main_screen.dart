@@ -8,9 +8,25 @@ import 'oxygen_detail_screen.dart';
 import 'dart:ui';
 import 'package:rabbithole_health_tracker_new/providers/connection_provider.dart';
 import 'package:rabbithole_health_tracker_new/providers/ble_provider.dart';
+import 'package:rabbithole_health_tracker_new/utils/device_storage.dart';
+import 'package:rabbithole_health_tracker_new/utils/token_storage.dart';
 
-class MainScreen extends ConsumerWidget {
+class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
+
+  @override
+  ConsumerState<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends ConsumerState<MainScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // 화면 진입 시 DB에서 최신 건강 데이터 로드
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(healthDataProvider.notifier).loadInitialData();
+    });
+  }
 
   void _goToDetail(BuildContext context, String type) {
     Navigator.push(
@@ -29,7 +45,7 @@ class MainScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final healthData = ref.watch(healthDataProvider);
     final heart = healthData.currentHeartRate;
     final minHeart = healthData.minHeartRate;
@@ -41,9 +57,10 @@ class MainScreen extends ConsumerWidget {
 
     final kcal = (steps * 0.04).toStringAsFixed(1);
 
-    final now = DateTime.now();
+    // 최신 건강 데이터의 타임스탬프를 사용, 없으면 현재 시간
+    final latestTimestamp = healthData.latest?.timestamp ?? DateTime.now();
     final dateText =
-        "${now.year}.${now.month.toString().padLeft(2, '0')}.${now.day.toString().padLeft(2, '0')}";
+        "${latestTimestamp.year}.${latestTimestamp.month.toString().padLeft(2, '0')}.${latestTimestamp.day.toString().padLeft(2, '0')} ${latestTimestamp.hour.toString().padLeft(2, '0')}시";
 
     final isConnected = ref.watch(connectionStateProvider);
 
@@ -85,7 +102,7 @@ class MainScreen extends ConsumerWidget {
                           left: 0,
                           child: IconButton(
                             icon: const Icon(
-                              Icons.history,
+                              Icons.science,
                               color: Colors.white,
                             ),
                             onPressed: () async {
@@ -106,11 +123,11 @@ class MainScreen extends ConsumerWidget {
                                 }
                               }
 
-                              await bleService.requestMonitoringData();
+                              await bleService.testBackgroundDataCollection();
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('건강 모니터링 데이터를 요청했습니다.'),
+                                    content: Text('백그라운드 데이터 수집 테스트를 시작했습니다.'),
                                   ),
                                 );
                               }
@@ -159,15 +176,6 @@ class MainScreen extends ConsumerWidget {
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                             color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          "평소보다 운동량이 많은 날이에요!",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF3F84AB),
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -960,13 +968,38 @@ class _ExpandableInfoSheet extends StatefulWidget {
 
 class _ExpandableInfoSheetState extends State<_ExpandableInfoSheet> {
   bool isExpanded = false;
+  String? macAddress;
+  String? userId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDeviceInfo();
+  }
+
+  Future<void> _loadDeviceInfo() async {
+    try {
+      final deviceInfo = await DeviceStorage.getDeviceInfo();
+      final userIdFromStorage = await TokenStorage.getUserId();
+
+      setState(() {
+        macAddress = deviceInfo?['id'] ?? '연결된 기기 없음';
+        userId = userIdFromStorage ?? '로그인 필요';
+      });
+    } catch (e) {
+      setState(() {
+        macAddress = '정보 로드 실패';
+        userId = '정보 로드 실패';
+      });
+    }
+  }
 
   void toggle() => setState(() => isExpanded = !isExpanded);
 
   @override
   Widget build(BuildContext context) {
-    const double collapsedHeight = 70;
-    const double expandedHeight = 180;
+    const double collapsedHeight = 59.5; // 70의 15% 감소 (70 * 0.85)
+    const double expandedHeight = 153; // 180의 15% 감소 (180 * 0.85)
 
     // Battery level logic
     final Color batteryColor = widget.battery < 20
@@ -1038,12 +1071,12 @@ class _ExpandableInfoSheetState extends State<_ExpandableInfoSheet> {
                 if (isExpanded) ...[
                   const SizedBox(height: 12),
                   const Text(
-                    "RINGSIN (반지 식별코드)",
+                    "연결된 링 MAC 주소",
                     style: TextStyle(color: Color(0xFF6CA2C0), fontSize: 14),
                   ),
-                  const Text(
-                    "4122001",
-                    style: TextStyle(
+                  Text(
+                    macAddress ?? '로딩 중...',
+                    style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF385A70),
@@ -1051,12 +1084,12 @@ class _ExpandableInfoSheetState extends State<_ExpandableInfoSheet> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    "사용자",
+                    "사용자 ID",
                     style: TextStyle(color: Color(0xFF6CA2C0), fontSize: 14),
                   ),
-                  const Text(
-                    "12321991",
-                    style: TextStyle(
+                  Text(
+                    userId ?? '로딩 중...',
+                    style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF385A70),

@@ -24,7 +24,7 @@ class MainActivity: FlutterActivity() {
     private val EVENT_CHANNEL = "com.example.sr08_sdk/events"
     private var eventSink: EventChannel.EventSink? = null
     private val mainHandler = Handler(Looper.getMainLooper())
-    private lateinit var timer: Timer
+
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -36,6 +36,8 @@ class MainActivity: FlutterActivity() {
                     val macAddress = call.argument<String>("macAddress")
                     if (macAddress != null) {
                         try {
+                            // MAC 주소를 백그라운드 서비스에서 사용할 수 있도록 저장
+                            SR08HealthService.setLastKnownMacAddress(macAddress)
                             MainApplication.manager.connectGatt(macAddress, false)
                             result.success(true)
                         } catch (e: Exception) {
@@ -60,7 +62,7 @@ class MainActivity: FlutterActivity() {
                 }
                 "startHealthMonitoring" -> {
                     try {
-                        startHealthMonitoring()
+                        // 주기적 모니터링 제거됨 - 백그라운드 서비스만 사용
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("MONITORING_FAILED", e.message, null)
@@ -68,14 +70,7 @@ class MainActivity: FlutterActivity() {
                 }
                 "measureHealthData" -> {
                     try {
-                        MainApplication.manager.cmdGet77()
-                        mainHandler.postDelayed({
-                            MainApplication.manager.cmdGet81()
-                            mainHandler.postDelayed({
-                                MainApplication.manager.cmdGet18()
-                            }, 1000)
-                        }, 1000)
-                        result.success(true)
+                        performMeasureHealthSequence(result)
                     } catch (e: Exception) {
                         result.error("MEASUREMENT_FAILED", e.message, null)
                     }
@@ -120,10 +115,21 @@ class MainActivity: FlutterActivity() {
                 }
                 "requestCurrentData" -> {
                     try {
-                        MainApplication.manager.cmdGet10()
+                        // 수신 버튼
+
+                        // MainApplication.manager.cmdGet23() - 혈중산소
+                        MainApplication.manager.cmdGet0()
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("CURRENT_DATA_FAILED", e.message, null)
+                    }
+                }
+                "requestBackgroundHealthData" -> {
+                    try {
+                        // 백그라운드에서 사용할 GET10, GET14, GET23 순차 실행
+                        performBackgroundDataSequence(result)
+                    } catch (e: Exception) {
+                        result.error("BACKGROUND_DATA_FAILED", e.message, null)
                     }
                 }
                 "requestBatteryStatus" -> {
@@ -160,21 +166,15 @@ class MainActivity: FlutterActivity() {
                 }
                 "instantHealthMeasurement" -> {
                     try {
-                        MainApplication.manager.cmdGet77()
-                        mainHandler.postDelayed({
-                            MainApplication.manager.cmdGet81()
-                            mainHandler.postDelayed({
-                                MainApplication.manager.cmdGet18()
-                            }, 1000)
-                        }, 1000)
-                        result.success(true)
+                        performMeasureHealthSequence(result)
                     } catch (e: Exception) {
-                        result.error("INSTANT_MEASURE_FAILED", e.message, null)
+                        result.error("MEASUREMENT_FAILED", e.message, null)
                     }
                 }
                 "requestMonitoringData" -> {
                     try {
-                        MainApplication.manager.cmdGet87()
+                        // 회전버튼 
+                        MainApplication.manager.cmdGet0();
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("GET87_FAILED", e.message, null)
@@ -187,6 +187,48 @@ class MainActivity: FlutterActivity() {
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("SET90_FAILED", e.message, null)
+                    }
+                }
+                "setLastKnownMacAddress" -> {
+                    try {
+                        val macAddress = call.argument<String>("macAddress")
+                        if (macAddress != null) {
+                            SR08HealthService.setLastKnownMacAddress(macAddress)
+                            result.success(true)
+                        } else {
+                            result.error("MAC_ADDRESS_NULL", "MAC address is null", null)
+                        }
+                    } catch (e: Exception) {
+                        result.error("SET_MAC_FAILED", e.message, null)
+                    }
+                }
+                "testBackgroundDataCollection" -> {
+                    try {
+                        SR08HealthService.triggerManualDataCollection()
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("TEST_BACKGROUND_FAILED", e.message, null)
+                    }
+                }
+                "sendBackgroundHealthData" -> {
+                    try {
+                        val heartRate = call.argument<Int>("heartRate") ?: 0
+                        val spo2 = call.argument<Int>("spo2") ?: 0
+                        val stepCount = call.argument<Int>("stepCount") ?: 0
+                        val battery = call.argument<Int>("battery") ?: 0
+                        val chargingState = call.argument<Int>("chargingState") ?: 0
+                        val timestamp = call.argument<String>("timestamp") ?: ""
+                        
+                        Log.d(TAG, "백그라운드 건강 데이터 전송 요청: HR=$heartRate, SpO2=$spo2, Steps=$stepCount, Battery=$battery")
+                        
+                        // Flutter의 ApiService.sendHealthData를 호출하기 위해 이벤트로 전송
+                        MainApplication.instance.sendBackgroundHealthDataToFlutter(
+                            heartRate, spo2, stepCount, battery, chargingState, timestamp
+                        )
+                        
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SEND_BACKGROUND_DATA_FAILED", e.message, null)
                     }
                 }
                 else -> result.notImplemented()
@@ -218,28 +260,7 @@ class MainActivity: FlutterActivity() {
         }
     }
 
-    private fun startHealthMonitoring() {
-        timer = Timer().apply {
-            schedule(object : TimerTask() {
-                override fun run() {
-                    if (MainApplication.instance.isConnectedState()) {
-                        try {
-                            // 순차(지연) 호출 – 3초 간격 예
-                            MainApplication.manager.cmdGet77()
-                            mainHandler.postDelayed({
-                                MainApplication.manager.cmdGet81()
-                                mainHandler.postDelayed({
-                                    MainApplication.manager.cmdGet18()
-                                }, 1000)
-                            }, 1000)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error during health monitoring: ${e.message}")
-                        }
-                    }
-                }
-            }, 0, 30 * 60 * 1000)   // 30 분마다 반복
-        }
-    }
+    // 주기적 모니터링 함수 제거됨 - 백그라운드 서비스만 사용
 
     /**
      * Executes the initial setup commands in strict sequence.
@@ -306,6 +327,68 @@ class MainActivity: FlutterActivity() {
         }
 
         waitForConnection()
+    }
+
+    /**
+     * Measures heart rate, SpO2, and steps in strict order.
+     * GET77 → wait → GET81 → wait → GET18.
+     */
+    private fun performMeasureHealthSequence(result: MethodChannel.Result) {
+        val manager = MainApplication.manager
+
+        data class Step(val action: () -> Unit, val expectedKey: String)
+
+        val steps = listOf(
+            Step(action = { manager.cmdGet77() }, expectedKey = "GET77"),
+            Step(action = { manager.cmdGet81() }, expectedKey = "GET81"),
+            Step(action = { manager.cmdGet18() }, expectedKey = "GET18"),
+        )
+
+        fun execute(index: Int) {
+            if (index >= steps.size) {
+                result.success(true)
+                return
+            }
+
+            val step = steps[index]
+            MainApplication.instance.waitForCmdResponse(step.expectedKey) {
+                execute(index + 1)
+            }
+            step.action.invoke()
+        }
+
+        execute(0)
+    }
+
+    /**
+     * 백그라운드에서 실행할 건강 데이터 수집 시퀀스
+     * GET10 (걸음수) → wait → GET14 (심박수) → wait → GET23 (혈중산소).
+     */
+    private fun performBackgroundDataSequence(result: MethodChannel.Result) {
+        val manager = MainApplication.manager
+
+        data class Step(val action: () -> Unit, val expectedKey: String)
+
+        val steps = listOf(
+            Step(action = { manager.cmdGet14() }, expectedKey = "GET14"),
+            Step(action = { manager.cmdGet10() }, expectedKey = "GET10"),
+            Step(action = { manager.cmdGet23() }, expectedKey = "GET23"),
+        )
+
+        fun execute(index: Int) {
+            if (index >= steps.size) {
+                result.success(true)
+                return
+            }
+
+            val step = steps[index]
+            MainApplication.instance.waitForCmdResponse(step.expectedKey) {
+                execute(index + 1)
+            }
+            step.action.invoke()
+        }
+
+        execute(0)
     }
 
     // (onConnected 콜백은 MainApplication에서 처리합니다)

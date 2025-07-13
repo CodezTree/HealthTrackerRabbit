@@ -39,7 +39,26 @@ class LocalDbService {
   static Future<void> saveHealthEntry(HealthEntry entry) async {
     if (_db == null) await init();
 
-    await _db!.insert(
+    await _db!.insert('health_entries', {
+      'userId': entry.userId,
+      'heartRate': entry.heartRate,
+      'minHeartRate': entry.minHeartRate,
+      'maxHeartRate': entry.maxHeartRate,
+      'spo2': entry.spo2,
+      'stepCount': entry.stepCount,
+      'battery': entry.battery,
+      'chargingState': entry.chargingState,
+      'sleepHours': entry.sleepHours,
+      'sportsTime': entry.sportsTime,
+      'screenStatus': entry.screenStatus,
+      'timestamp': entry.timestamp.toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<void> updateHealthEntry(HealthEntry entry) async {
+    if (_db == null) await init();
+
+    await _db!.update(
       'health_entries',
       {
         'userId': entry.userId,
@@ -55,7 +74,8 @@ class LocalDbService {
         'screenStatus': entry.screenStatus,
         'timestamp': entry.timestamp.toIso8601String(),
       },
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      where: 'id = ?',
+      whereArgs: [entry.id],
     );
   }
 
@@ -146,9 +166,19 @@ class LocalDbService {
     DateTime start,
     DateTime end,
   ) async {
-    return getHealthEntries(
-      startDate: start,
-      endDate: end,
+    return getHealthEntries(startDate: start, endDate: end);
+  }
+
+  static Future<HealthEntry?> getEntryForHour(DateTime hourlyTimestamp) async {
+    if (_db == null) await init();
+
+    final List<Map<String, dynamic>> maps = await _db!.query(
+      'health_entries',
+      where: 'timestamp = ?',
+      whereArgs: [hourlyTimestamp.toIso8601String()],
+      limit: 1,
     );
+
+    return maps.isEmpty ? null : HealthEntry.fromMap(maps.first);
   }
 }
