@@ -18,7 +18,9 @@ class BleService {
 
   BleService(this.ref);
 
-  static const platform = MethodChannel('com.example.sr08_sdk/methods');
+  static const platform = MethodChannel(
+    'com.example.rabbithole_health_tracker_new/health',
+  );
   static const eventChannel = EventChannel('com.example.sr08_sdk/events');
 
   BluetoothDevice? _device;
@@ -48,20 +50,49 @@ class BleService {
 
   bool get isConnected => _device != null;
 
+  /// 연결 상태 초기화 메서드
+  Future<void> _resetConnectionState() async {
+    try {
+      _device = null;
+      _reconnectAttempts = 0;
+      _dataSubscription?.cancel();
+      _batteryTimer?.cancel();
+      ref.read(connectionStateProvider.notifier).state = false;
+
+      // 백그라운드 서비스 정리
+      await platform.invokeMethod('stopBackgroundService').catchError((e) {
+        print('백그라운드 서비스 중지 실패: $e');
+      });
+
+      print("[BLE] 연결 상태 초기화 완료");
+    } catch (e) {
+      print("[BLE] 연결 상태 초기화 중 오류: $e");
+    }
+  }
+
   Future<bool> tryReconnectFromSavedDevice() async {
     final info = await DeviceStorage.getDeviceInfo();
     if (info == null) return false;
 
     try {
+      // 재연결 시도 전 잠시 대기
+      await Future.delayed(const Duration(seconds: 1));
+
       await connectToDevice(info['id']!, save: false);
       return true;
-    } catch (_) {
+    } catch (e) {
+      print('재연결 실패: $e');
       return false;
     }
   }
 
   Future<void> connectToDevice(String macAddress, {bool save = true}) async {
     try {
+      // 연결 시도 전 상태 초기화
+      _reconnectAttempts = 0;
+      _device = null;
+      ref.read(connectionStateProvider.notifier).state = false;
+
       await platform.invokeMethod('connectDevice', {'macAddress': macAddress});
 
       // 연결 성공 후 데이터 수신 리스너 설정
@@ -74,8 +105,12 @@ class BleService {
       print("실제 완료 대기");
 
       // 실제 연결 완료 대기
-      final ok = await waitForConnection(timeout: const Duration(seconds: 10));
-      if (!ok) throw Exception('Connection timeout');
+      final ok = await waitForConnection(timeout: const Duration(seconds: 15));
+      if (!ok) {
+        // 연결 실패 시 상태 초기화
+        await _resetConnectionState();
+        throw Exception('Connection timeout');
+      }
 
       print("연결 됨. 최초 초기 설정 명령 전송 중...");
 
@@ -93,6 +128,8 @@ class BleService {
 
       print("초기 설정 및 백그라운드 모니터링 시작 완료");
     } catch (e) {
+      // 연결 실패 시 상태 초기화
+      await _resetConnectionState();
       print('Failed to connect: $e');
       rethrow;
     }
@@ -280,6 +317,25 @@ class BleService {
             '📊 HR: $heartRate, SpO2: $spo2%, Steps: $stepCount, Battery: $battery%',
           );
 
+          // 실시간 UI 업데이트를 위해 백그라운드 데이터도 즉시 healthDataProvider에 반영
+          if (heartRate > 0 || spo2 > 0 || stepCount > 0 || battery > 0) {
+            final healthData = ref.read(healthDataProvider.notifier);
+            final latest = ref.read(healthDataProvider).latest;
+
+            healthData.updateHealthData(
+              heartRate: heartRate > 0 ? heartRate : (latest?.heartRate ?? 0),
+              spo2: spo2 > 0 ? spo2 : (latest?.spo2 ?? 0),
+              stepCount: stepCount > 0 ? stepCount : (latest?.stepCount ?? 0),
+              battery: battery > 0 ? battery : (latest?.battery ?? 0),
+              chargingState: chargingState,
+              sleepHours: latest?.sleepHours ?? 0,
+              sportsTime: latest?.sportsTime ?? 0,
+              screenStatus: latest?.screenStatus ?? 0,
+            );
+
+            debugPrint('🔄 백그라운드 데이터로 UI 업데이트 완료');
+          }
+
           _saveBackgroundHealthDataToLocal(
             heartRate: heartRate,
             spo2: spo2,
@@ -400,9 +456,11 @@ class BleService {
 
   Future<void> enableAutoMonitoring(bool enable) async {
     try {
+      // 중장년층 사용자를 위해 항상 자동 측정 활성화
       await platform.invokeMethod('enableAutoMonitoring', {
-        'state': enable ? 1 : 0,
+        'state': 0, // 항상 0로 고정
       });
+      print('자동 측정 활성화 완료');
     } catch (e) {
       print('Failed to set auto monitoring: $e');
     }

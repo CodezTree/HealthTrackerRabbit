@@ -483,7 +483,7 @@ class _HeartDetailScreenState extends ConsumerState<HeartDetailScreen>
           "심박수 상세",
           style: TextStyle(
             color: Colors.white,
-            fontSize: 18,
+            fontSize: 27, // 18 * 1.5 = 27
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -497,27 +497,27 @@ class _HeartDetailScreenState extends ConsumerState<HeartDetailScreen>
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // 그라데이션 배경 영역
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFF6CA2C0), Color(0xFFF7FAFC)],
-                  stops: [0.0, 0.3],
-                ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                child: _buildCurrentHeartCard(currentHeart, minHeart, maxHeart),
+      body: Column(
+        children: [
+          // 그라데이션 배경 영역 (고정)
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFF6CA2C0), Color(0xFFF7FAFC)],
+                stops: [0.0, 0.3],
               ),
             ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              child: _buildCurrentHeartCard(currentHeart, minHeart, maxHeart),
+            ),
+          ),
 
-            // 탭 및 데이터 표시 영역
-            Container(
+          // 탭 및 데이터 표시 영역 (확장 가능)
+          Expanded(
+            child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -532,7 +532,7 @@ class _HeartDetailScreenState extends ConsumerState<HeartDetailScreen>
               ),
               child: Column(
                 children: [
-                  // 탭 바
+                  // 탭 바 (고정)
                   Container(
                     decoration: BoxDecoration(
                       border: Border(
@@ -547,11 +547,11 @@ class _HeartDetailScreenState extends ConsumerState<HeartDetailScreen>
                       indicatorWeight: 3,
                       labelStyle: const TextStyle(
                         fontWeight: FontWeight.w600,
-                        fontSize: 16,
+                        fontSize: 24, // 16 * 1.5 = 24
                       ),
                       unselectedLabelStyle: const TextStyle(
                         fontWeight: FontWeight.w500,
-                        fontSize: 16,
+                        fontSize: 24, // 16 * 1.5 = 24
                       ),
                       onTap: (index) {
                         setState(() {
@@ -566,9 +566,8 @@ class _HeartDetailScreenState extends ConsumerState<HeartDetailScreen>
                     ),
                   ),
 
-                  // 탭 내용
-                  SizedBox(
-                    height: 400,
+                  // 탭 내용 (스크롤 가능)
+                  Expanded(
                     child: TabBarView(
                       controller: _tabController,
                       children: [
@@ -581,9 +580,9 @@ class _HeartDetailScreenState extends ConsumerState<HeartDetailScreen>
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-          ],
-        ),
+          ),
+          const SizedBox(height: 16),
+        ],
       ),
     );
   }

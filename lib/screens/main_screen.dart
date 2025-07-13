@@ -87,20 +87,650 @@ class _MainScreenState extends ConsumerState<MainScreen>
     }
   }
 
-  void _goToDetail(BuildContext context, String type) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const OxygenDetailScreen()),
+  // 심박수에 따른 색상 결정
+  Color getHeartColor(int bpm) {
+    if (bpm <= 100) {
+      return const Color(0xFF6CA2C0); // 정상수치
+    } else if (bpm <= 120) {
+      return const Color(0xFFDF7548); // 약간 높음
+    } else {
+      return const Color(0xFFE92430); // 매우 높음
+    }
+  }
+
+  // 걸음수에 따른 색상 결정
+  Color getStepsColor(int steps) {
+    const int dailyGoal = 10000;
+    if (steps >= dailyGoal) {
+      return const Color(0xFF48BB78); // 목표 달성 - 초록
+    } else if (steps >= dailyGoal * 0.7) {
+      return const Color(0xFF6CA2C0); // 70% 이상 - 파랑
+    } else if (steps >= dailyGoal * 0.5) {
+      return const Color(0xFFDF7548); // 50% 이상 - 주황
+    } else {
+      return const Color(0xFFE53E3E); // 50% 미만 - 빨강
+    }
+  }
+
+  // 산소포화도에 따른 색상 결정
+  Color getOxygenColor(int spo2) {
+    if (spo2 >= 95) {
+      return const Color(0xFF26A0E4); // 정상 - 파란색
+    } else if (spo2 >= 90) {
+      return const Color(0xFFDF7548); // 주의 - 주황색
+    } else {
+      return const Color(0xFFE92430); // 심각 - 빨간색
+    }
+  }
+
+  Widget _buildSummaryCard(int heart, int steps, int oxygen, String kcal) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // 제목
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF6CA2C0).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.health_and_safety,
+                  color: Color(0xFF6CA2C0),
+                  size: 20,
+                ),
+                SizedBox(width: 8),
+                Text(
+                  "종합 건강 상태",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF2D3748),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // 건강 상태 표시
+          Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF6CA2C0).withOpacity(0.1),
+              border: Border.all(
+                color: const Color(0xFF6CA2C0).withOpacity(0.3),
+                width: 2,
+              ),
+            ),
+            child: const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.health_and_safety,
+                  color: Color(0xFF6CA2C0),
+                  size: 32,
+                ),
+                SizedBox(height: 4),
+                Text(
+                  "정상",
+                  style: TextStyle(
+                    fontSize: 24, // 16 * 1.5 = 24
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF6CA2C0),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // 건강 데이터 요약
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildHealthSummaryItem(
+                icon: Icons.favorite,
+                label: "심박수",
+                value: "$heart",
+                unit: "bpm",
+                color: getHeartColor(heart),
+              ),
+              _buildHealthSummaryItem(
+                icon: Icons.directions_walk,
+                label: "걸음수",
+                value: "$steps",
+                unit: "걸음",
+                color: getStepsColor(steps),
+              ),
+              _buildHealthSummaryItem(
+                icon: Icons.water_drop,
+                label: "산소포화도",
+                value: "$oxygen",
+                unit: "%",
+                color: getOxygenColor(oxygen),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // 칼로리 정보
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.local_fire_department,
+                  color: Colors.orange,
+                  size: 16,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  "칼로리 소모량: $kcal kcal",
+                  style: const TextStyle(
+                    fontSize: 21, // 14 * 1.5 = 21
+                    color: Color(0xFF4A5568),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  void _callEmergency() async {
-    const emergencyNumber = 'tel:119';
-    if (await canLaunchUrl(Uri.parse(emergencyNumber))) {
-      await launchUrl(Uri.parse(emergencyNumber));
-    } else {
-      debugPrint("전화 연결 실패");
-    }
+  Widget _buildHealthSummaryItem({
+    required IconData icon,
+    required String label,
+    required String value,
+    required String unit,
+    required Color color,
+  }) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 24, // 16 * 1.5 = 24
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          unit,
+          style: TextStyle(
+            fontSize: 15,
+            color: color.withOpacity(0.8),
+          ), // 10 * 1.5 = 15
+        ),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 16,
+            color: Color(0xFF718096),
+          ), // 11 * 1.5 = 16.5 ≈ 16
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeartCard(int heart, int minHeart, int maxHeart) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const HeartDetailScreen()),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            // 좌측 정보
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 제목
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: getHeartColor(heart).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.favorite,
+                          color: getHeartColor(heart),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
+                        const Text(
+                          "심박수",
+                          style: TextStyle(
+                            fontSize: 21, // 14 * 1.5 = 21
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF2D3748),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 현재 심박수
+                  Row(
+                    children: [
+                      Text(
+                        "$heart",
+                        style: TextStyle(
+                          fontSize: 42, // 28 * 1.5 = 42
+                          fontWeight: FontWeight.bold,
+                          color: getHeartColor(heart),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        "BPM",
+                        style: TextStyle(
+                          fontSize: 21, // 14 * 1.5 = 21
+                          color: getHeartColor(heart).withOpacity(0.8),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // 최소/최대 정보
+                  Row(
+                    children: [
+                      Text(
+                        "최저 $minHeart",
+                        style: const TextStyle(
+                          fontSize: 18, // 12 * 1.5 = 18
+                          color: Color(0xFF718096),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        "최고 $maxHeart",
+                        style: const TextStyle(
+                          fontSize: 18, // 12 * 1.5 = 18
+                          color: Color(0xFF718096),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // 우측 하트 아이콘
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: getHeartColor(heart).withOpacity(0.1),
+              ),
+              child: Icon(
+                Icons.favorite,
+                color: getHeartColor(heart),
+                size: 40,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepsCard(int steps) {
+    const int dailyGoal = 10000;
+    final progress = (steps / dailyGoal).clamp(0.0, 1.0);
+    final kcal = (steps * 0.04).toStringAsFixed(1);
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const StepsDetailScreen()),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 제목
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: getStepsColor(steps).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.directions_walk,
+                    color: getStepsColor(steps),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 4),
+                  const Text(
+                    "걸음수",
+                    style: TextStyle(
+                      fontSize: 21, // 14 * 1.5 = 21
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF2D3748),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            Row(
+              children: [
+                // 좌측 정보
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 현재 걸음수
+                      Row(
+                        children: [
+                          Text(
+                            "$steps",
+                            style: TextStyle(
+                              fontSize: 36, // 24 * 1.5 = 36
+                              fontWeight: FontWeight.bold,
+                              color: getStepsColor(steps),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            "걸음",
+                            style: TextStyle(
+                              fontSize: 21, // 14 * 1.5 = 21
+                              color: getStepsColor(steps).withOpacity(0.8),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      // 칼로리 정보
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.local_fire_department,
+                            size: 14,
+                            color: Colors.orange,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            "$kcal kcal",
+                            style: const TextStyle(
+                              fontSize: 18, // 12 * 1.5 = 18
+                              color: Color(0xFF718096),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // 우측 진행률 표시
+                SizedBox(
+                  width: 60,
+                  height: 60,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        value: progress,
+                        backgroundColor: Colors.grey.shade200,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          getStepsColor(steps),
+                        ),
+                        strokeWidth: 6,
+                      ),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            "${(progress * 100).round()}%",
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: getStepsColor(steps),
+                            ),
+                          ),
+                          const Text(
+                            "목표",
+                            style: TextStyle(
+                              fontSize: 8,
+                              color: Color(0xFF718096),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // 목표 달성도 바
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "목표 달성도",
+                  style: TextStyle(fontSize: 12, color: Color(0xFF718096)),
+                ),
+                const SizedBox(height: 4),
+                LinearProgressIndicator(
+                  value: progress,
+                  backgroundColor: Colors.grey.shade200,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    getStepsColor(steps),
+                  ),
+                  minHeight: 6,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOxygenCard(
+    int oxygen,
+    int minOxygen,
+    int maxOxygen,
+    String measurementTime,
+  ) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const OxygenDetailScreen()),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            // 좌측 정보
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 제목
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: getOxygenColor(oxygen).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.water_drop,
+                          color: getOxygenColor(oxygen),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
+                        const Text(
+                          "산소포화도",
+                          style: TextStyle(
+                            fontSize: 21, // 14 * 1.5 = 21
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF2D3748),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 현재 산소포화도
+                  Row(
+                    children: [
+                      Text(
+                        "$oxygen",
+                        style: TextStyle(
+                          fontSize: 42, // 28 * 1.5 = 42
+                          fontWeight: FontWeight.bold,
+                          color: getOxygenColor(oxygen),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        "%",
+                        style: TextStyle(
+                          fontSize: 21, // 14 * 1.5 = 21
+                          color: getOxygenColor(oxygen).withOpacity(0.8),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+
+                  // 측정 시간
+                  Text(
+                    measurementTime,
+                    style: const TextStyle(
+                      fontSize: 16, // 11 * 1.5 = 16.5 ≈ 16
+                      color: Color(0xFF718096),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+
+                  // 최소/최대 정보
+                  Row(
+                    children: [
+                      Text(
+                        "최저 $minOxygen%",
+                        style: const TextStyle(
+                          fontSize: 18, // 12 * 1.5 = 18
+                          color: Color(0xFF718096),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        "최고 $maxOxygen%",
+                        style: const TextStyle(
+                          fontSize: 18, // 12 * 1.5 = 18
+                          color: Color(0xFF718096),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // 우측 애니메이션 버블
+            _AnimatedOxygenBubble(value: "$oxygen%"),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -110,6 +740,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
     final minHeart = healthData.minHeartRate;
     final maxHeart = healthData.maxHeartRate;
     final oxygen = healthData.currentSpo2;
+    final minOxygen = healthData.minSpo2;
+    final maxOxygen = healthData.maxSpo2;
     final steps = healthData.currentSteps;
     final battery = healthData.batteryLevel;
     final isCharging = healthData.isCharging;
@@ -123,815 +755,133 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
     final isConnected = ref.watch(connectionStateProvider);
 
-    // 심박수에 따른 색상 결정
-    Color getHeartColor(int bpm) {
-      if (bpm <= 100) {
-        return const Color(0xFF6CA2C0); // 정상수치
-      } else if (bpm <= 120) {
-        return const Color(0xFFDF7548); // 약간 높음
-      } else {
-        return const Color(0xFFE92430); // 매우 높음
-      }
-    }
-
     return Scaffold(
-      body: Stack(
-        children: <Widget>[
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                stops: [0.0, 0.6837],
-                colors: [Color(0xFF79ABC7), Colors.white],
+      backgroundColor: const Color(0xFFF7FAFC),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 16),
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.9),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isConnected
+                    ? const Color(0xFF4299E1)
+                    : Colors.grey.shade400,
+                width: 1.5,
               ),
-            ),
-            child: SafeArea(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  // Top bar with emergency notification button and refresh button
-                  Container(
-                    height: 36,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        // 새로고침 버튼 (왼쪽)
-                        Positioned(
-                          left: 16,
-                          top: 0,
-                          child: IconButton(
-                            icon: const Icon(
-                              Icons.refresh,
-                              color: Colors.white,
-                              size: 28,
-                            ),
-                            onPressed: () {
-                              debugPrint('🔄 수동 새로고침 시작');
-                              _loadLatestHealthData();
-                            },
-                          ),
-                        ),
-                        Positioned(
-                          left: 0,
-                          child: IconButton(
-                            icon: const Icon(
-                              Icons.science,
-                              color: Colors.white,
-                            ),
-                            onPressed: () async {
-                              final bleService = ref.read(bleServiceProvider);
-
-                              if (!isConnected) {
-                                final success = await bleService
-                                    .tryReconnectFromSavedDevice();
-                                if (!success) {
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('재연결에 실패했습니다.'),
-                                      ),
-                                    );
-                                  }
-                                  return;
-                                }
-                              }
-
-                              await bleService.testBackgroundDataCollection();
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('백그라운드 데이터 수집 테스트를 시작했습니다.'),
-                                  ),
-                                );
-                              }
-                            },
-                          ),
-                        ),
-                        Positioned(
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 6,
-                            ),
-                            decoration: const BoxDecoration(
-                              color: Colors.redAccent,
-                              borderRadius: BorderRadius.only(
-                                topLeft: Radius.circular(18),
-                                bottomLeft: Radius.circular(18),
-                              ),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.notifications,
-                                  size: 22,
-                                  color: Colors.white,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Content with proper padding
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        // Date and title
-                        Text(
-                          "TODAY $dateText",
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        // Summary donut
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black12, blurRadius: 8),
-                            ],
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              SizedBox(
-                                width: 80,
-                                height: 80,
-                                child: Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    Container(
-                                      width: 80,
-                                      height: 80,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: Colors.blue.shade100,
-                                      ),
-                                    ),
-                                    const Text(
-                                      "정상",
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.blueAccent,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.directions_walk,
-                                          size: 16,
-                                          color: Colors.blueGrey,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          "오늘 $steps보 걸음",
-                                          style: const TextStyle(fontSize: 13),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.favorite,
-                                          size: 16,
-                                          color: Colors.redAccent,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          "심박수 $heart bpm",
-                                          style: const TextStyle(fontSize: 13),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.water_drop,
-                                          size: 16,
-                                          color: Colors.lightBlue,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          "산소포화도 $oxygen%",
-                                          style: const TextStyle(fontSize: 13),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.local_fire_department,
-                                          size: 16,
-                                          color: Colors.orange,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          "칼로리 소모량: $kcal kcal",
-                                          style: const TextStyle(fontSize: 13),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        // Card: Heart rate
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const HeartDetailScreen(),
-                              ),
-                            );
-                          },
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.only(
-                              top: 0,
-                              bottom: 0,
-                              left: 20,
-                              right: 0,
-                            ),
-                            margin: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              // Removed DecorationImage for heart background
-                              boxShadow: const [
-                                BoxShadow(color: Colors.black12, blurRadius: 8),
-                              ],
-                            ),
-                            clipBehavior: Clip.hardEdge,
-                            child: SizedBox(
-                              height: 72,
-                              child: Stack(
-                                children: [
-                                  // Heart background image with left-to-right fade
-                                  Positioned.fill(
-                                    child: ShaderMask(
-                                      shaderCallback: (Rect bounds) {
-                                        return const LinearGradient(
-                                          begin: Alignment.centerLeft,
-                                          end: Alignment.centerRight,
-                                          colors: [
-                                            Colors.transparent,
-                                            Colors.black,
-                                          ],
-                                        ).createShader(bounds);
-                                      },
-                                      blendMode: BlendMode.dstIn,
-                                      child: Image.asset(
-                                        'assets/images/heart_background.png',
-                                        fit: BoxFit.cover,
-                                        alignment: Alignment.centerRight,
-                                      ),
-                                    ),
-                                  ),
-                                  // Decorative heart icon behind bpm text, upper-right
-                                  Align(
-                                    alignment: Alignment.topRight,
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(
-                                        top: 0,
-                                        right: 4,
-                                      ),
-                                      child: Icon(
-                                        Icons.favorite,
-                                        color: getHeartColor(heart),
-                                        size: 80,
-                                      ),
-                                    ),
-                                  ),
-                                  Row(
-                                    children: [
-                                      Container(
-                                        alignment: Alignment.centerLeft,
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 4,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                border: Border.all(
-                                                  color: const Color(
-                                                    0xFF99BCD0,
-                                                  ),
-                                                  width: 1,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                color: const Color(0xFFFFFFFF),
-                                              ),
-                                              child: const Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    Icons.favorite,
-                                                    color: Colors.redAccent,
-                                                    size: 18,
-                                                  ),
-                                                  SizedBox(width: 4),
-                                                  Text(
-                                                    "심박",
-                                                    style: TextStyle(
-                                                      fontSize: 14,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      color: Color(0xFF6392AE),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Align(
-                                          alignment: Alignment.centerRight,
-                                          child: Padding(
-                                            padding: const EdgeInsets.only(
-                                              right: 25,
-                                            ),
-                                            child: Text.rich(
-                                              TextSpan(
-                                                text: "$heart\n",
-                                                style: const TextStyle(
-                                                  fontSize: 18,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.white,
-                                                  height: 1.0,
-                                                ),
-                                                children: const [
-                                                  TextSpan(
-                                                    text: "bpm",
-                                                    style: TextStyle(
-                                                      fontSize: 18,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      color: Colors.white,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              textAlign: TextAlign.center,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        // Card: Steps
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const StepsDetailScreen(),
-                              ),
-                            );
-                          },
-                          child: (() {
-                            final kcal = (steps * 0.04).toStringAsFixed(1);
-                            const int dailyGoal = 16000;
-                            final double progress = steps / dailyGoal;
-                            final double percent = (progress * 100).clamp(
-                              0,
-                              100,
-                            );
-                            return Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(20),
-                              margin: const EdgeInsets.symmetric(vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Colors.black12,
-                                    blurRadius: 8,
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Bordered, rounded, light background label for "걸음"
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFFFFFFF),
-                                      border: Border.all(
-                                        color: const Color(0xFF99BCD0),
-                                        width: 1,
-                                      ),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.directions_walk,
-                                          color: Colors.blueGrey,
-                                          size: 18,
-                                        ),
-                                        SizedBox(width: 4),
-                                        Text(
-                                          "걸음",
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                            color: Color(0xFF6392AE),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  const Row(
-                                    children: [
-                                      Icon(
-                                        Icons.access_time,
-                                        size: 16,
-                                        color: Color(0xFF6392AE),
-                                      ),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        "보행 시간: 1h 21m",
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: Color(0xFF6392AE),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.local_fire_department,
-                                        size: 16,
-                                        color: Color(0xFF6392AE),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        "칼로리 소모량: $kcal kcal",
-                                        style: const TextStyle(
-                                          fontSize: 14,
-                                          color: Color(0xFF6392AE),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const Row(
-                                    children: [
-                                      Icon(
-                                        Icons.alt_route,
-                                        size: 16,
-                                        color: Color(0xFF6392AE),
-                                      ),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        "이동 거리: 5.41km",
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: Color(0xFF6392AE),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const Row(
-                                    children: [
-                                      Icon(
-                                        Icons.speed,
-                                        size: 16,
-                                        color: Color(0xFF6392AE),
-                                      ),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        "속도: 3.11km/h",
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: Color(0xFF6392AE),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        "걸음 목표 달성도",
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFF6392AE),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      // Add Row with 0 and 100 labels above the progress bar
-                                      const Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text(
-                                            "0",
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              color: Color(0xFFA8E0FF),
-                                            ),
-                                          ),
-                                          Text(
-                                            "100",
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              color: Color(0xFFA8E0FF),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      LinearProgressIndicator(
-                                        value: progress.clamp(0, 1),
-                                        minHeight: 8,
-                                        backgroundColor: const Color.fromARGB(
-                                          255,
-                                          243,
-                                          243,
-                                          243,
-                                        ),
-                                        valueColor:
-                                            const AlwaysStoppedAnimation<Color>(
-                                              Color(0xFFA8E0FF),
-                                            ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        "${percent.toStringAsFixed(1)}%",
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Color(0xFFA8E0FF),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
-                          })(),
-                        ),
-                        // Card: Oxygen
-                        GestureDetector(
-                          onTap: () => _goToDetail(context, "oxygen"),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(20),
-                            margin: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              boxShadow: const [
-                                BoxShadow(color: Colors.black12, blurRadius: 8),
-                              ],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Label with icon and box background (styled like "걸음"/"심박") - move to top left
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFFFFFFF),
-                                    border: Border.all(
-                                      color: const Color(0xFF99BCD0),
-                                      width: 1,
-                                    ),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.water_drop,
-                                        color: Colors.lightBlue,
-                                        size: 18,
-                                      ),
-                                      SizedBox(width: 4),
-                                      Text(
-                                        "산소포화도",
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFF6392AE),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                // Row with 측정 시간 (left) and value (right)
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      _getFormattedLastMeasurementTime(
-                                        healthData.latest,
-                                      ),
-                                      style: const TextStyle(
-                                        fontSize: 30,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF6CA2C0),
-                                      ),
-                                    ),
-                                    // Animated oxygen percentage with blue gaseous circle
-                                    _AnimatedOxygenBubble(value: "$oxygen%"),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          _ExpandableInfoSheet(battery: battery, isCharging: isCharging),
-        ],
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
-          ),
-          child: Row(
-            children: [
-              Icon(
-                isConnected
-                    ? Icons.bluetooth_connected
-                    : Icons.bluetooth_disabled,
-                color: isConnected ? Colors.blue : Colors.grey,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  isConnected ? '링이 연결되었습니다.' : '링이 연결되지 않았습니다.',
-                  style: TextStyle(
-                    color: isConnected ? Colors.black : Colors.grey,
-                  ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
                 ),
-              ),
-              // 측정 버튼 수정 -> 바로 측정
-              ElevatedButton(
-                onPressed: () async {
-                  final bleService = ref.read(bleServiceProvider);
-                  final isConnectedNow = ref.read(connectionStateProvider);
-
-                  // Attempt reconnection only when not connected
-                  if (!isConnectedNow) {
-                    final success = await bleService
-                        .tryReconnectFromSavedDevice();
-                    if (!success) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('재연결에 실패했습니다.')),
-                        );
-                      }
-                      return;
-                    }
-                  }
-
-                  // Connected, request instant measurement
-                  await bleService.startInstantHealthMeasurement();
-
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('즉시 측정을 시작했습니다.')),
-                    );
-                  }
-                },
-                child: const Text('바로 측정'),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: () async {
-                  final bleService = ref.read(bleServiceProvider);
-                  final isConnectedNow = ref.read(connectionStateProvider);
-
-                  if (!isConnectedNow) {
-                    final success = await bleService
-                        .tryReconnectFromSavedDevice();
-                    if (!success) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('재연결에 실패했습니다.')),
-                        );
-                      }
-                      return;
-                    }
-                  }
-
-                  try {
-                    await bleService.requestCurrentData();
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('현재 데이터를 요청했습니다.')),
-                      );
-                    }
-                  } catch (_) {}
-                },
-                child: const Text('수신'),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: () async {
-                  final bleService = ref.read(bleServiceProvider);
-                  final isConnectedNow = ref.read(connectionStateProvider);
-
-                  if (!isConnectedNow) {
-                    final success = await bleService
-                        .tryReconnectFromSavedDevice();
-                    if (!success) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('재연결에 실패했습니다.')),
-                        );
-                      }
-                      return;
-                    }
-                  }
-
-                  try {
-                    await bleService.resetDeviceData();
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('기기 데이터를 초기화했습니다.')),
-                      );
-                    }
-                  } catch (_) {}
-                },
-                child: const Text('초기화'),
-              ),
-              const SizedBox(width: 8),
-            ],
+              ],
+            ),
+            child: Icon(
+              isConnected
+                  ? Icons.bluetooth_connected
+                  : Icons.bluetooth_disabled,
+              color: isConnected
+                  ? const Color(0xFF4299E1)
+                  : Colors.grey.shade500,
+              size: 22,
+            ),
           ),
         ),
+        title: Text(
+          "TODAY $dateText",
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 24, // 16 * 1.5 = 24
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        centerTitle: true,
+        actions: [
+          // 응급 알림 버튼
+          Container(
+            margin: const EdgeInsets.only(right: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: const BoxDecoration(
+              color: Colors.redAccent,
+              borderRadius: BorderRadius.all(Radius.circular(20)),
+            ),
+            child: const Icon(
+              Icons.notifications,
+              size: 20,
+              color: Colors.white,
+            ),
+          ),
+        ],
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF79ABC7), Color(0xFF6CA2C0)],
+            ),
+          ),
+        ),
+      ),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            child: Column(
+              children: [
+                // 그라데이션 배경 영역
+                Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFF6CA2C0), Color(0xFFF7FAFC)],
+                      stops: [0.0, 0.3],
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    child: Column(
+                      children: [
+                        // 종합 건강 상태 카드
+                        _buildSummaryCard(heart, steps, oxygen, kcal),
+                        const SizedBox(height: 16),
+
+                        // 심박수 카드
+                        _buildHeartCard(heart, minHeart, maxHeart),
+                        const SizedBox(height: 16),
+
+                        // 걸음수 카드
+                        _buildStepsCard(steps),
+                        const SizedBox(height: 16),
+
+                        // 산소포화도 카드
+                        _buildOxygenCard(
+                          oxygen,
+                          minOxygen,
+                          maxOxygen,
+                          _getFormattedLastMeasurementTime(healthData.latest),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 60), // 바텀시트 공간 확보 (100 → 120)
+              ],
+            ),
+          ),
+          // 배터리 정보 바텀시트
+          _ExpandableInfoSheet(battery: battery, isCharging: isCharging),
+        ],
       ),
     );
   }
 }
 
-// Animated oxygen bubble widget using AnimationController loop
+// 산소포화도 애니메이션 버블 (기존 코드 유지)
 class _AnimatedOxygenBubble extends StatefulWidget {
   final String value;
   const _AnimatedOxygenBubble({required this.value});
@@ -970,9 +920,8 @@ class _AnimatedOxygenBubbleState extends State<_AnimatedOxygenBubble>
     return AnimatedBuilder(
       animation: _animation,
       builder: (context, child) {
-        // Enlarge the bubble significantly
-        const double bubbleSize = 120;
-        const double textFontSize = 30;
+        const double bubbleSize = 80;
+        const double textFontSize = 20;
         return SizedBox(
           width: bubbleSize,
           height: bubbleSize,
@@ -998,12 +947,10 @@ class _AnimatedOxygenBubbleState extends State<_AnimatedOxygenBubble>
                                 center: Alignment.center,
                                 radius: 0.95,
                                 colors: [
-                                  Color(0xFF26A0E4), // Center blue
-                                  Color(0xFF26A0E4), // Strong blue
-                                  Color(0xFFB6E4FC), // Light blue
-                                  Color(
-                                    0xFFFFFFFF,
-                                  ), // Fade to white (soft glow)
+                                  Color(0xFF26A0E4),
+                                  Color(0xFF26A0E4),
+                                  Color(0xFFB6E4FC),
+                                  Color(0xFFFFFFFF),
                                   Colors.transparent,
                                 ],
                                 stops: [0.0, 0.4, 0.5, 0.7, 1.0],
@@ -1032,7 +979,7 @@ class _AnimatedOxygenBubbleState extends State<_AnimatedOxygenBubble>
   }
 }
 
-// ExpandableInfoSheet widget as a bottom panel
+// 배터리 정보 바텀시트 (기존 코드 유지)
 class _ExpandableInfoSheet extends StatefulWidget {
   final int battery;
   final bool isCharging;
@@ -1075,15 +1022,35 @@ class _ExpandableInfoSheetState extends State<_ExpandableInfoSheet> {
 
   @override
   Widget build(BuildContext context) {
-    const double collapsedHeight = 59.5; // 70의 15% 감소 (70 * 0.85)
-    const double expandedHeight = 153; // 180의 15% 감소 (180 * 0.85)
+    const double collapsedHeight = 65;
+    const double expandedHeight = 220; // 190 → 220으로 증가
 
-    // Battery level logic
-    final Color batteryColor = widget.battery < 20
-        ? Colors.red
-        : widget.battery < 50
-        ? Colors.yellow
-        : const Color(0xFF6CA2C0);
+    // 배터리 레벨에 따른 색상 시스템 개선
+    Color getBatteryColor() {
+      if (widget.battery >= 60) {
+        return const Color(0xFF48BB78); // 60% 이상 - 초록색 (안전)
+      } else if (widget.battery >= 30) {
+        return const Color(0xFF26A0E4); // 30-59% - 파란색 (보통)
+      } else if (widget.battery >= 15) {
+        return const Color(0xFFDF7548); // 15-29% - 주황색 (주의)
+      } else {
+        return const Color(0xFFE53E3E); // 15% 미만 - 빨간색 (위험)
+      }
+    }
+
+    String getBatteryStatus() {
+      if (widget.battery >= 60) {
+        return "충분";
+      } else if (widget.battery >= 30) {
+        return "보통";
+      } else if (widget.battery >= 15) {
+        return "부족";
+      } else {
+        return "위험";
+      }
+    }
+
+    final batteryColor = getBatteryColor();
 
     return Positioned(
       bottom: 0,
@@ -1097,15 +1064,29 @@ class _ExpandableInfoSheetState extends State<_ExpandableInfoSheet> {
           onTap: toggle,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 300),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            decoration: const BoxDecoration(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 20,
+              vertical: 8,
+            ), // 10 → 8로 감소
+            decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
+              border: Border.all(
+                color: batteryColor.withOpacity(0.3),
+                width: 2,
+              ),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black12,
                   blurRadius: 12,
-                  offset: Offset(0, -2),
+                  offset: const Offset(0, -2),
+                ),
+                BoxShadow(
+                  color: batteryColor.withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, -4),
                 ),
               ],
             ),
@@ -1117,59 +1098,144 @@ class _ExpandableInfoSheetState extends State<_ExpandableInfoSheet> {
                   children: [
                     Row(
                       children: [
-                        Icon(
-                          widget.isCharging
-                              ? Icons.battery_charging_full
-                              : Icons.battery_full,
-                          color: batteryColor,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          "남은 배터리 잔량",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: batteryColor,
-                            fontSize: 25,
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: batteryColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
                           ),
+                          child: Icon(
+                            widget.isCharging
+                                ? Icons.battery_charging_full
+                                : Icons.battery_full,
+                            color: batteryColor,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "남은 배터리 잔량",
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: batteryColor,
+                                fontSize: 24, // 16 * 1.5 = 24
+                              ),
+                            ),
+                            Text(
+                              getBatteryStatus(),
+                              style: TextStyle(
+                                fontSize: 18, // 12 * 1.5 = 18
+                                color: batteryColor.withOpacity(0.8),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    Text(
-                      "${widget.battery}%",
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
                         color: batteryColor,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: batteryColor.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        "${widget.battery}%",
+                        style: const TextStyle(
+                          fontSize: 30, // 20 * 1.5 = 30
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ],
                 ),
                 if (isExpanded) ...[
-                  const SizedBox(height: 12),
-                  const Text(
-                    "연결된 링 MAC 주소",
-                    style: TextStyle(color: Color(0xFF6CA2C0), fontSize: 14),
-                  ),
-                  Text(
-                    macAddress ?? '로딩 중...',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF385A70),
+                  const SizedBox(height: 10), // 14 → 10으로 감소
+                  Container(
+                    padding: const EdgeInsets.all(10), // 12 → 10으로 감소
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200, width: 1),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    "사용자 ID",
-                    style: TextStyle(color: Color(0xFF6CA2C0), fontSize: 14),
-                  ),
-                  Text(
-                    userId ?? '로딩 중...',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF385A70),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "연결된 링 MAC 주소",
+                              style: TextStyle(
+                                color: Color(0xFF6CA2C0),
+                                fontSize: 18, // 12 * 1.5 = 18
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Icon(
+                              Icons.info_outline,
+                              size: 16,
+                              color: Colors.grey.shade400,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2), // 4 → 2로 감소
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            macAddress ?? '로딩 중...',
+                            style: const TextStyle(
+                              fontSize: 24, // 16 * 1.5 = 24
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF385A70),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8), // 10 → 8로 감소
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "사용자 ID",
+                              style: TextStyle(
+                                color: Color(0xFF6CA2C0),
+                                fontSize: 18, // 12 * 1.5 = 18
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Icon(
+                              Icons.person_outline,
+                              size: 16,
+                              color: Colors.grey.shade400,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2), // 4 → 2로 감소
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            userId ?? '로딩 중...',
+                            style: const TextStyle(
+                              fontSize: 24, // 16 * 1.5 = 24
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF385A70),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

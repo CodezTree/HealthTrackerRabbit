@@ -141,6 +141,8 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         );
       }
     } catch (e) {
+      print('연결 실패: $e');
+
       setState(() {
         isConnecting = false;
         hasFailed = true;
@@ -149,14 +151,23 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       if (retryCount < maxRetries) {
         retryCount++;
         _showToast('연결 실패. 재시도 중... ($retryCount/$maxRetries)');
-        // 2초 후 재연결 시도
-        Future.delayed(const Duration(seconds: 2), () {
+
+        // 재시도 전 더 긴 대기 시간 (지수적 백오프)
+        final delaySeconds = 2 * retryCount;
+        await Future.delayed(Duration(seconds: delaySeconds));
+
+        if (mounted) {
           _connectToDevice(device);
-        });
+        }
       } else {
         _showToast('연결에 실패했습니다. 다시 스캔을 시작합니다.');
         retryCount = 0;
-        _startScan();
+
+        // 완전한 상태 초기화 후 스캔 재시작
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted) {
+          _startScan();
+        }
       }
     }
   }
@@ -189,7 +200,10 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
               child: const Text.rich(
                 TextSpan(
                   text: '충전기 ',
-                  style: TextStyle(fontFamily: 'Pretendard', fontSize: 20),
+                  style: TextStyle(
+                    fontFamily: 'Pretendard',
+                    fontSize: 30,
+                  ), // 20 * 1.5 = 30
                   children: [
                     TextSpan(
                       text: 'DECK',
@@ -206,7 +220,10 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
           ] else if (_isScanning) ...[
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
-            const Text('링 검색 중...'),
+            const Text(
+              '링 검색 중...',
+              style: TextStyle(fontSize: 24),
+            ), // 16 * 1.5 = 24
           ] else ...[
             Expanded(
               child: ListView.builder(
@@ -218,13 +235,20 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                       device.platformName.isEmpty
                           ? 'Unknown Device'
                           : device.platformName,
+                      style: const TextStyle(fontSize: 24), // 16 * 1.5 = 24
                     ),
-                    subtitle: Text(device.remoteId.str),
+                    subtitle: Text(
+                      device.remoteId.str,
+                      style: const TextStyle(fontSize: 21), // 14 * 1.5 = 21
+                    ),
                     trailing: ElevatedButton(
                       onPressed: isConnecting
                           ? null
                           : () => _connectToDevice(device),
-                      child: Text(isConnecting ? '연결 중...' : '연결'),
+                      child: Text(
+                        isConnecting ? '연결 중...' : '연결',
+                        style: const TextStyle(fontSize: 21), // 14 * 1.5 = 21
+                      ),
                     ),
                   );
                 },
@@ -234,7 +258,10 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
               padding: const EdgeInsets.all(16.0),
               child: ElevatedButton(
                 onPressed: _isScanning ? null : _startScan,
-                child: Text(_isScanning ? '검색 중...' : '다시 검색'),
+                child: Text(
+                  _isScanning ? '검색 중...' : '다시 검색',
+                  style: const TextStyle(fontSize: 21), // 14 * 1.5 = 21
+                ),
               ),
             ),
           ],

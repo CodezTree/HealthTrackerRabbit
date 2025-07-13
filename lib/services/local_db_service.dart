@@ -186,6 +186,9 @@ class LocalDbService {
   /// 네이티브 SQLite 데이터베이스에서 데이터를 가져와서 동기화
   static Future<void> syncNativeHealthData({String? userId}) async {
     try {
+      // 메서드 채널 초기화 대기
+      await Future.delayed(const Duration(milliseconds: 500));
+
       const platform = MethodChannel(
         'com.example.rabbithole_health_tracker_new/health',
       );

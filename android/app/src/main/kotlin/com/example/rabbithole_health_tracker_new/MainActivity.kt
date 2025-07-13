@@ -21,7 +21,7 @@ class MainActivity: FlutterActivity() {
         private const val TAG = "MainActivity"
     }
 
-    private val METHOD_CHANNEL = "com.example.sr08_sdk/methods"
+    private val METHOD_CHANNEL = "com.example.rabbithole_health_tracker_new/health"
     private val EVENT_CHANNEL = "com.example.sr08_sdk/events"
     private var eventSink: EventChannel.EventSink? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -310,7 +310,7 @@ class MainActivity: FlutterActivity() {
                 Step(action = { manager.cmdSet46(0) }),          // SET46 assumed no response
                 Step(action = { manager.cmdSet45(this) }),       // SET45 assumed no response
                 Step(action = { manager.cmdGet0() }, expectedKey = "GET0"),
-                Step(action = { manager.cmdSet89(1) }),          // SET89 assumed no response
+                Step(action = { manager.cmdSet89(0) }),          // SET89 assumed no response
             )
 
             fun executeStep(index: Int) {
