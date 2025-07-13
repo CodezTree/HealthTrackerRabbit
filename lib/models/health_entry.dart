@@ -1,28 +1,36 @@
-import 'package:isar/isar.dart';
-
-part 'health_entry.g.dart';
-
-@collection
 class HealthEntry {
-  Id id = Isar.autoIncrement;
+  int? id;
+  String userId;
+  int heartRate; // 현재 심박수
+  int minHeartRate; // 최소 심박수
+  int maxHeartRate; // 최대 심박수
+  int spo2;
+  int stepCount;
+  int battery;
+  int chargingState;
+  double sleepHours;
+  int sportsTime;
+  int screenStatus;
+  DateTime timestamp;
 
-  late String userId;
-  late int heartRate; // 현재 심박수
-  late int minHeartRate; // 최소 심박수
-  late int maxHeartRate; // 최대 심박수
-  late int spo2;
-  late int stepCount;
-  late int battery;
-  late int chargingState;
-  late double sleepHours;
-  late int sportsTime;
-  late int screenStatus;
-  late DateTime timestamp;
-
-  HealthEntry();
+  HealthEntry({
+    this.id,
+    required this.userId,
+    required this.heartRate,
+    required this.minHeartRate,
+    required this.maxHeartRate,
+    required this.spo2,
+    required this.stepCount,
+    required this.battery,
+    required this.chargingState,
+    required this.sleepHours,
+    required this.sportsTime,
+    required this.screenStatus,
+    required this.timestamp,
+  });
 
   HealthEntry.create({
-    this.id = Isar.autoIncrement,
+    this.id,
     required this.userId,
     required this.heartRate,
     required this.minHeartRate,
@@ -38,7 +46,8 @@ class HealthEntry {
   });
 
   factory HealthEntry.fromMap(Map<String, dynamic> map) {
-    return HealthEntry.create(
+    return HealthEntry(
+      id: map['id'] as int?,
       userId: map['userId'] as String,
       heartRate: map['heartRate'] as int,
       minHeartRate: map['minHeartRate'] as int,
@@ -55,7 +64,7 @@ class HealthEntry {
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = {
       'userId': userId,
       'heartRate': heartRate,
       'minHeartRate': minHeartRate,
@@ -69,6 +78,12 @@ class HealthEntry {
       'screenStatus': screenStatus,
       'timestamp': timestamp.toIso8601String(),
     };
+
+    if (id != null) {
+      map['id'] = id!;
+    }
+
+    return map;
   }
 
   void updateHeartRateStats(int newHeartRate) {

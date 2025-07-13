@@ -41,8 +41,7 @@ dependencies:
   fl_chart: ^0.66.1 # 그래프
   shared_preferences: ^2.2.2 # JWT 저장
   url_launcher: ^6.2.4 # 긴급 전화
-  isar: ^3.0.5
-  isar_flutter_libs: ^3.0.5
+
   path_provider: ^2.1.1
   android_alarm_manager_plus: ^4.0.0
   sqflite: ^2.3.0
