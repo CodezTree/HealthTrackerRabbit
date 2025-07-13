@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'dart:ui';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:rabbithole_health_tracker_new/models/health_entry.dart';
 import 'package:rabbithole_health_tracker_new/providers/health_provider.dart';
 
@@ -16,25 +14,64 @@ class _OxygenDetailScreenState extends ConsumerState<OxygenDetailScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
+  // 차트 데이터 상태
+  List<HealthEntry> dailyData = [];
+  List<HealthEntry> weeklyData = [];
+  List<HealthEntry> monthlyData = [];
+  bool isLoading = true;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _loadChartData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadChartData() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    final healthNotifier = ref.read(healthDataProvider.notifier);
+
+    try {
+      final daily = await healthNotifier.getDailyData();
+      final weekly = await healthNotifier.getWeeklyData();
+      final monthly = await healthNotifier.getMonthlyData();
+
+      setState(() {
+        dailyData = daily;
+        weeklyData = weekly;
+        monthlyData = monthly;
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+      print('차트 데이터 로드 오류: $e');
+    }
   }
 
   // 산소포화도 상태에 따른 색상 반환
-  Color _getOxygenStatusColor(int spo2) {
+  Color getOxygenColor(int spo2) {
     if (spo2 >= 95) {
-      return const Color(0xFF26A0E4); // 정상
+      return const Color(0xFF26A0E4); // 정상 - 파란색
     } else if (spo2 >= 90) {
-      return const Color(0xFFDF7548); // 주의
+      return const Color(0xFFDF7548); // 주의 - 주황색
     } else {
-      return const Color(0xFFE92430); // 심각
+      return const Color(0xFFE92430); // 심각 - 빨간색
     }
   }
 
   // 산소포화도 상태 텍스트 반환
-  String _getOxygenStatusText(int spo2) {
+  String getOxygenStatus(int spo2) {
     if (spo2 >= 95) {
       return "정상";
     } else if (spo2 >= 90) {
@@ -44,126 +81,341 @@ class _OxygenDetailScreenState extends ConsumerState<OxygenDetailScreen>
     }
   }
 
-  Widget _buildChartView(List<HealthEntry> entries) {
-    if (entries.isEmpty) {
-      return const Center(child: Text("데이터가 없습니다 🥲"));
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final chartWidth = constraints.maxWidth - 52;
-        final barGap = chartWidth / (entries.length * 2);
-        final effectiveChartHeight = constraints.maxHeight * 0.9;
-        const textOffset = 40.0;
-
-        // 현재 값을 계산하는 함수
-        int getCurrentValue(HealthEntry entry) {
-          return entry.spo2;
-        }
-
-        // 최대값 계산 (차트의 maxY 값)
-        double maxValue = 100; // 산소포화도는 항상 100이 최대
-
-        // 텍스트 위치 계산을 위한 Y 오프셋
-        double getTextYOffset(int value) {
-          final ratio = value / maxValue;
-          return (ratio * effectiveChartHeight) + textOffset;
-        }
-
-        return Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: _buildBarChart(entries),
+  Widget _buildCurrentOxygenCard(int currentSpo2, int minSpo2, int maxSpo2) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // 제목
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: getOxygenColor(currentSpo2).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
             ),
-            for (int i = 0; i < entries.length; i++) ...[
-              Positioned(
-                left: barGap * i * 2 + barGap + 12,
-                bottom: getTextYOffset(getCurrentValue(entries[i])),
-                child: Text(
-                  "${getCurrentValue(entries[i])}%",
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF6098B8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.water_drop,
+                  color: getOxygenColor(currentSpo2),
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  "오늘의 산소포화도",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF2D3748),
                   ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // 메인 산소포화도 표시
+          Container(
+            width: 160,
+            height: 160,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  getOxygenColor(currentSpo2).withOpacity(0.1),
+                  getOxygenColor(currentSpo2).withOpacity(0.05),
+                  Colors.transparent,
+                ],
+              ),
+              border: Border.all(
+                color: getOxygenColor(currentSpo2).withOpacity(0.3),
+                width: 2,
+              ),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // 진행률 바 (80-100% 범위)
+                SizedBox(
+                  width: 140,
+                  height: 140,
+                  child: CircularProgressIndicator(
+                    value: (currentSpo2 - 80) / 20, // 80-100% 범위를 0-1로 변환
+                    backgroundColor: Colors.grey.shade200,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      getOxygenColor(currentSpo2),
+                    ),
+                    strokeWidth: 8,
+                  ),
+                ),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      "$currentSpo2",
+                      style: TextStyle(
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                        color: getOxygenColor(currentSpo2),
+                      ),
+                    ),
+                    Text(
+                      "%",
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: getOxygenColor(currentSpo2).withOpacity(0.8),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: getOxygenColor(currentSpo2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        getOxygenStatus(currentSpo2),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // 최대/최소 표시
+          Row(
+            children: [
+              Expanded(
+                child: _buildMinMaxCard(
+                  label: "오늘 최저",
+                  value: minSpo2,
+                  icon: Icons.keyboard_arrow_down,
+                  color: const Color(0xFFE53E3E),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildMinMaxCard(
+                  label: "오늘 최고",
+                  value: maxSpo2,
+                  icon: Icons.keyboard_arrow_up,
+                  color: const Color(0xFF48BB78),
                 ),
               ),
             ],
-          ],
-        );
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMinMaxCard({
+    required String label,
+    required int value,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(height: 8),
+          Text(
+            "$value%",
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: color.withOpacity(0.8),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDataView(List<HealthEntry> entries, int tabIndex) {
+    if (isLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(40),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (entries.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(40),
+          child: Column(
+            children: [
+              Icon(Icons.water_drop_outlined, size: 48, color: Colors.grey),
+              SizedBox(height: 16),
+              Text(
+                "데이터가 없습니다",
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final entry = entries[index];
+        return _buildDataCard(entry, tabIndex, index);
       },
     );
   }
 
-  Widget _buildBarChart(List<HealthEntry> entries) {
-    return BarChart(
-      BarChartData(
-        alignment: BarChartAlignment.spaceEvenly,
-        maxY: 100,
-        minY: 80, // 산소포화도는 보통 80% 이하로 떨어지지 않음
-        barGroups: entries
-            .map(
-              (e) => BarChartGroupData(
-                x: entries.indexOf(e),
-                barRods: [
-                  BarChartRodData(
-                    fromY: 80,
-                    toY: e.spo2.toDouble(),
-                    width: 16,
-                    color: _getOxygenStatusColor(e.spo2),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                ],
+  Widget _buildDataCard(HealthEntry entry, int tabIndex, int index) {
+    String timeLabel;
+    if (tabIndex == 0) {
+      timeLabel = "${entry.timestamp.hour.toString().padLeft(2, '0')}:00";
+    } else if (tabIndex == 1) {
+      const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+      timeLabel = weekdays[entry.timestamp.weekday - 1];
+    } else {
+      timeLabel = "${entry.timestamp.month}월";
+    }
+
+    final progress = (entry.spo2 - 80) / 20; // 80-100% 범위를 0-1로 변환
+    final oxygenColor = getOxygenColor(entry.spo2);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // 시간 표시
+          SizedBox(
+            width: 60,
+            child: Text(
+              timeLabel,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF4A5568),
               ),
-            )
-            .toList(),
-        backgroundColor: Colors.white,
-        gridData: const FlGridData(show: false),
-        titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 30,
-              getTitlesWidget: (value, _) {
-                int idx = value.toInt();
-                if (idx >= entries.length) return const Text('');
-                final dt = entries[idx].timestamp;
-                if (_tabController.index == 0) {
-                  return Text(
-                    "${dt.hour.toString().padLeft(2, '0')}:00",
-                    style: const TextStyle(fontSize: 10),
-                  );
-                } else if (_tabController.index == 1) {
-                  const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-                  return Text(
-                    weekdays[dt.weekday - 1],
-                    style: const TextStyle(fontSize: 10),
-                  );
-                } else {
-                  return Text(
-                    "${dt.month}월",
-                    style: const TextStyle(fontSize: 10),
-                  );
-                }
-              },
             ),
           ),
-        ),
-        borderData: FlBorderData(show: false),
-        barTouchData: BarTouchData(enabled: false),
-        groupsSpace: 0,
+          const SizedBox(width: 16),
+
+          // 산소포화도 바
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "${entry.spo2}%",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: oxygenColor,
+                      ),
+                    ),
+                    Text(
+                      getOxygenStatus(entry.spo2),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF718096),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  height: 6,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(3),
+                    color: Colors.grey.shade200,
+                  ),
+                  child: Stack(
+                    children: [
+                      // 진행률 바
+                      FractionallySizedBox(
+                        widthFactor: progress.clamp(0.0, 1.0),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(3),
+                            color: oxygenColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // 상태 표시
+          Icon(Icons.water_drop, color: oxygenColor, size: 20),
+        ],
       ),
-      swapAnimationDuration: Duration.zero,
     );
   }
 
@@ -171,239 +423,124 @@ class _OxygenDetailScreenState extends ConsumerState<OxygenDetailScreen>
   Widget build(BuildContext context) {
     final healthData = ref.watch(healthDataProvider);
     final currentSpo2 = healthData.currentSpo2;
-    final statusColor = _getOxygenStatusColor(currentSpo2);
-    final statusText = _getOxygenStatusText(currentSpo2);
+    final minSpo2 = healthData.minSpo2;
+    final maxSpo2 = healthData.maxSpo2;
 
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            stops: [0.0, 0.6837],
-            colors: [Color(0xFF79ABC7), Colors.white],
+      backgroundColor: const Color(0xFFF7FAFC),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          "산소포화도 상세",
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 0),
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(height: 24),
-                      // Top title bar with icon and label
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F8FF),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.water_drop, color: Color(0xFF6CA2C0)),
-                            SizedBox(width: 8),
-                            Text(
-                              "산소포화도",
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF6CA2C0),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      // Animated oxygen bubble
-                      SizedBox(
-                        height: 160,
-                        child: _AnimatedOxygenBubble(
-                          value: "$currentSpo2%",
-                          color: statusColor,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      // Status text
-                      Text(
-                        statusText,
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: statusColor,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
-                  ),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF79ABC7), Color(0xFF6CA2C0)],
+            ),
+          ),
+        ),
+      ),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // 그라데이션 배경 영역
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF6CA2C0), Color(0xFFF7FAFC)],
+                  stops: [0.0, 0.3],
                 ),
               ),
-              const SizedBox(height: 16),
-              // Tabs and chart
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                child: _buildCurrentOxygenCard(currentSpo2, minSpo2, maxSpo2),
+              ),
+            ),
+
+            // 탭 및 데이터 표시 영역
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  // 탭 바
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Colors.grey.shade200),
+                      ),
                     ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    TabBar(
+                    child: TabBar(
                       controller: _tabController,
                       labelColor: const Color(0xFF6CA2C0),
-                      unselectedLabelColor: Colors.grey,
+                      unselectedLabelColor: const Color(0xFF718096),
                       indicatorColor: const Color(0xFF6CA2C0),
+                      indicatorWeight: 3,
+                      labelStyle: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                      unselectedLabelStyle: const TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 16,
+                      ),
+                      onTap: (index) {
+                        setState(() {
+                          // 탭 변경 시 UI 업데이트
+                        });
+                      },
                       tabs: const [
                         Tab(text: "오늘"),
                         Tab(text: "주간"),
                         Tab(text: "월간"),
                       ],
                     ),
-                    SizedBox(
-                      height: 280,
-                      child: TabBarView(
-                        controller: _tabController,
-                        physics: const NeverScrollableScrollPhysics(),
-                        children: [
-                          _buildChartView(healthData.today),
-                          _buildChartView(healthData.week),
-                          _buildChartView(healthData.month),
-                        ],
-                      ),
+                  ),
+
+                  // 탭 내용
+                  SizedBox(
+                    height: 400,
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildDataView(dailyData, 0),
+                        _buildDataView(weeklyData, 1),
+                        _buildDataView(monthlyData, 2),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 24),
+          ],
         ),
       ),
-    );
-  }
-}
-
-// Animated oxygen bubble widget
-class _AnimatedOxygenBubble extends StatefulWidget {
-  final String value;
-  final Color color;
-
-  const _AnimatedOxygenBubble({required this.value, required this.color});
-
-  @override
-  State<_AnimatedOxygenBubble> createState() => _AnimatedOxygenBubbleState();
-}
-
-class _AnimatedOxygenBubbleState extends State<_AnimatedOxygenBubble>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
-
-    _animation = Tween<double>(
-      begin: -10,
-      end: 10,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) {
-        const double bubbleSize = 120;
-        const double textFontSize = 30;
-        return SizedBox(
-          width: bubbleSize,
-          height: bubbleSize,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Transform.translate(
-                offset: Offset(0, _animation.value),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Opacity(
-                      opacity: 0.9,
-                      child: ClipOval(
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-                          child: Container(
-                            width: bubbleSize,
-                            height: bubbleSize,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: RadialGradient(
-                                center: Alignment.center,
-                                radius: 0.95,
-                                colors: [
-                                  widget.color,
-                                  widget.color,
-                                  widget.color.withOpacity(0.5),
-                                  widget.color.withOpacity(0.2),
-                                  Colors.transparent,
-                                ],
-                                stops: const [0.0, 0.4, 0.5, 0.7, 1.0],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Text(
-                      widget.value,
-                      style: const TextStyle(
-                        fontSize: textFontSize,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }

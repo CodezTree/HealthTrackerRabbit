@@ -370,13 +370,43 @@ class MainApplication : Application(), BTMGattCallBack, AnalyticalDataCallBack {
                     Log.d(TAG, "백그라운드 건강 데이터를 Flutter로 전송 성공")
                 } else {
                     Log.w(TAG, "Flutter 이벤트 채널이 연결되지 않음 - 백그라운드 데이터 전송 실패")
-                    // 로컬 데이터베이스에 저장하여 나중에 전송할 수 있도록 처리
-                    // TODO: 로컬 DB에 저장하는 로직 추가
+                    // Flutter가 연결되지 않은 경우 로컬 저장 시도
+                    saveBackgroundHealthDataToLocal(heartRate, spo2, stepCount, battery, chargingState, timestamp)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Flutter로 백그라운드 데이터 전송 중 오류: ${e.message}")
                 // 오류 발생 시에도 로컬 데이터베이스에 저장
-                // TODO: 로컬 DB에 저장하는 로직 추가
+                saveBackgroundHealthDataToLocal(heartRate, spo2, stepCount, battery, chargingState, timestamp)
+            }
+        }
+    }
+
+    fun saveBackgroundHealthDataToLocal(
+        heartRate: Int, 
+        spo2: Int, 
+        stepCount: Int, 
+        battery: Int, 
+        chargingState: Int, 
+        timestamp: String
+    ) {
+        mainHandler.post {
+            try {
+                if (eventSink != null) {
+                    eventSink?.success(mapOf(
+                        "type" to "save_background_health_data",
+                        "heartRate" to heartRate,
+                        "spo2" to spo2,
+                        "stepCount" to stepCount,
+                        "battery" to battery,
+                        "chargingState" to chargingState,
+                        "timestamp" to timestamp
+                    ))
+                    Log.d(TAG, "백그라운드 건강 데이터 로컬 저장 요청 전송 성공")
+                } else {
+                    Log.w(TAG, "Flutter 이벤트 채널이 연결되지 않음 - 로컬 저장 요청 실패")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Flutter로 로컬 저장 요청 전송 중 오류: ${e.message}")
             }
         }
     }

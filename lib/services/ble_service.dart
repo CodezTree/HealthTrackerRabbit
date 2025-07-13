@@ -4,6 +4,8 @@ import 'package:rabbithole_health_tracker_new/providers/health_provider.dart';
 import '../utils/device_storage.dart';
 import '../services/background_service.dart';
 import '../services/api_service.dart';
+import '../services/local_db_service.dart';
+import '../models/health_entry.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
 import '../providers/connection_provider.dart';
@@ -257,6 +259,28 @@ class BleService {
           );
 
           _sendBackgroundHealthDataToServer(
+            heartRate: heartRate,
+            spo2: spo2,
+            stepCount: stepCount,
+            battery: battery,
+            chargingState: chargingState,
+            timestamp: timestamp,
+          );
+        } else if (type == 'save_background_health_data') {
+          // 백그라운드에서 수집된 데이터를 로컬 데이터베이스에 저장
+          final heartRate = data['heartRate'] as int? ?? 0;
+          final spo2 = data['spo2'] as int? ?? 0;
+          final stepCount = data['stepCount'] as int? ?? 0;
+          final battery = data['battery'] as int? ?? 0;
+          final chargingState = data['chargingState'] as int? ?? 0;
+          final timestamp = data['timestamp'] as String? ?? '';
+
+          debugPrint('💾 백그라운드 건강 데이터 로컬 저장 요청 수신');
+          debugPrint(
+            '📊 HR: $heartRate, SpO2: $spo2%, Steps: $stepCount, Battery: $battery%',
+          );
+
+          _saveBackgroundHealthDataToLocal(
             heartRate: heartRate,
             spo2: spo2,
             stepCount: stepCount,
@@ -556,6 +580,64 @@ class BleService {
       }
     } catch (e) {
       debugPrint('💥 백그라운드 건강 데이터 서버 전송 오류: $e');
+    }
+  }
+
+  /// 백그라운드에서 수집된 건강 데이터를 로컬 데이터베이스에 저장
+  void _saveBackgroundHealthDataToLocal({
+    required int heartRate,
+    required int spo2,
+    required int stepCount,
+    required int battery,
+    required int chargingState,
+    required String timestamp,
+  }) async {
+    try {
+      debugPrint('💾 백그라운드 건강 데이터 로컬 저장 시작');
+
+      // 유효한 데이터인지 확인
+      if (heartRate <= 0 || spo2 <= 0 || stepCount < 0) {
+        debugPrint('❌ 유효하지 않은 데이터 - 로컬 저장 건너뜀');
+        debugPrint('HR: $heartRate, SpO2: $spo2, Steps: $stepCount');
+        return;
+      }
+
+      // HealthEntry 생성
+      final healthEntry = HealthEntry.create(
+        userId: 'current_user', // TODO: 실제 사용자 ID로 변경
+        heartRate: heartRate,
+        minHeartRate: heartRate,
+        maxHeartRate: heartRate,
+        spo2: spo2,
+        stepCount: stepCount,
+        battery: battery,
+        chargingState: chargingState,
+        sleepHours: 0.0,
+        sportsTime: 0,
+        screenStatus: 0,
+        timestamp: DateTime.parse(timestamp),
+      );
+
+      // 로컬 데이터베이스에 저장
+      await LocalDbService.saveHealthEntry(healthEntry);
+
+      debugPrint('✅ 백그라운드 건강 데이터 로컬 저장 성공');
+      debugPrint(
+        '📊 저장된 데이터: HR=$heartRate, SpO2=$spo2%, Steps=$stepCount, Battery=$battery%',
+      );
+
+      // health_provider에도 업데이트하여 UI에 즉시 반영
+      final healthData = ref.read(healthDataProvider.notifier);
+      await healthData.updateFromBackgroundData(
+        heartRate: heartRate,
+        spo2: spo2,
+        stepCount: stepCount,
+        battery: battery,
+        chargingState: chargingState,
+        timestamp: DateTime.parse(timestamp),
+      );
+    } catch (e) {
+      debugPrint('💥 백그라운드 건강 데이터 로컬 저장 오류: $e');
     }
   }
 }

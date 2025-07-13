@@ -147,9 +147,9 @@ class SR08HealthService : Service() {
                         }
                     }
                 }
-            }, 0, 5 * 60 * 1000) // 5분 간격으로 실행
+            }, 0, 10 * 60 * 1000) // 10분 간격으로 실행
         }
-        Log.d(TAG, "5분 주기 건강 모니터링 타이머 시작")
+        Log.d(TAG, "10분 주기 건강 모니터링 타이머 시작")
     }
 
     private fun stopPeriodicHealthMonitoring() {
@@ -593,13 +593,88 @@ class SR08HealthService : Service() {
         try {
             Log.d(TAG, "수집된 데이터를 로컬에 저장")
             
-            collectedData.forEach { (key, value) ->
-                Log.d(TAG, "저장할 데이터: $key = $value")
+            // 수집된 데이터 확인
+            val heartRate = collectedData["heartRate"] as? Int ?: 0
+            val spo2 = collectedData["spo2"] as? Int ?: 0
+            val stepCount = collectedData["stepCount"] as? Int ?: 0
+            val battery = collectedData["battery"] as? Int ?: 0
+            val chargingState = collectedData["chargingState"] as? Int ?: 0
+            val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.getDefault()).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.format(java.util.Date())
+            
+            // 유효한 데이터가 있는 경우에만 저장
+            if (heartRate > 0 || spo2 > 0 || stepCount >= 0) {
+                Log.d(TAG, "로컬 저장할 데이터: HR=$heartRate, SpO2=$spo2, Steps=$stepCount, Battery=$battery%, ChargingState=$chargingState")
+                
+                // 1차 시도: Flutter 측으로 로컬 저장 요청 전송
+                var flutterSaveSuccess = false
+                try {
+                    MainApplication.instance.saveBackgroundHealthDataToLocal(
+                        heartRate, spo2, stepCount, battery, chargingState, timestamp
+                    )
+                    flutterSaveSuccess = MainApplication.instance.hasEventSink()
+                    Log.d(TAG, "Flutter 로컬 저장 시도 결과: $flutterSaveSuccess")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Flutter 로컬 저장 실패: ${e.message}")
+                }
+                
+                // 2차 시도: Flutter 저장 실패 시 네이티브 SQLite 직접 저장
+                if (!flutterSaveSuccess) {
+                    Log.d(TAG, "Flutter 저장 실패 - 네이티브 SQLite 직접 저장 시도")
+                    val nativeSuccess = saveToNativeSQLite(heartRate, spo2, stepCount, battery, chargingState, timestamp)
+                    Log.d(TAG, "네이티브 SQLite 저장 결과: $nativeSuccess")
+                }
+            } else {
+                Log.w(TAG, "유효한 데이터가 없어 로컬 저장을 건너뜀")
             }
             
-            // 실제 로컬 저장은 Flutter 측에서 처리됨
         } catch (e: Exception) {
             Log.e(TAG, "로컬 데이터 저장 오류: ${e.message}")
+        }
+    }
+
+    /**
+     * 네이티브 SQLite 데이터베이스에 직접 저장
+     */
+    private fun saveToNativeSQLite(
+        heartRate: Int,
+        spo2: Int, 
+        stepCount: Int,
+        battery: Int,
+        chargingState: Int,
+        timestamp: String
+    ): Boolean {
+        return try {
+            val db = this.openOrCreateDatabase("health_tracker.db", Context.MODE_PRIVATE, null)
+            
+            // 테이블 생성 (존재하지 않는 경우)
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS health_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    heart_rate INTEGER,
+                    spo2 INTEGER,
+                    step_count INTEGER,
+                    battery INTEGER,
+                    charging_state INTEGER,
+                    timestamp TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            // 데이터 삽입
+            db.execSQL("""
+                INSERT INTO health_entries (heart_rate, spo2, step_count, battery, charging_state, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, arrayOf(heartRate, spo2, stepCount, battery, chargingState, timestamp))
+            
+            db.close()
+            
+            Log.d(TAG, "✅ 네이티브 SQLite 저장 성공: HR=$heartRate, SpO2=$spo2, Steps=$stepCount")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ 네이티브 SQLite 저장 실패: ${e.message}")
+            false
         }
     }
     

@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:flutter/services.dart';
 import '../models/health_entry.dart';
 
 class LocalDbService {
@@ -180,5 +181,60 @@ class LocalDbService {
     );
 
     return maps.isEmpty ? null : HealthEntry.fromMap(maps.first);
+  }
+
+  /// 네이티브 SQLite 데이터베이스에서 데이터를 가져와서 동기화
+  static Future<void> syncNativeHealthData({String? userId}) async {
+    try {
+      const platform = MethodChannel(
+        'com.example.rabbithole_health_tracker_new/health',
+      );
+
+      // 네이티브 데이터 조회
+      final List<dynamic> nativeData = await platform.invokeMethod(
+        'getNativeHealthData',
+        {'limit': 1000},
+      );
+
+      if (nativeData.isEmpty) {
+        print('동기화할 네이티브 데이터가 없습니다.');
+        return;
+      }
+
+      int syncedCount = 0;
+
+      for (final Map<String, dynamic> nativeEntry in nativeData) {
+        try {
+          // 네이티브 데이터를 HealthEntry로 변환
+          final healthEntry = HealthEntry.create(
+            userId: userId ?? 'background_user',
+            heartRate: nativeEntry['heartRate'] as int,
+            minHeartRate: nativeEntry['heartRate'] as int,
+            maxHeartRate: nativeEntry['heartRate'] as int,
+            spo2: nativeEntry['spo2'] as int,
+            stepCount: nativeEntry['stepCount'] as int,
+            battery: nativeEntry['battery'] as int,
+            chargingState: nativeEntry['chargingState'] as int,
+            sleepHours: 0.0,
+            sportsTime: 0,
+            screenStatus: 0,
+            timestamp: DateTime.parse(nativeEntry['timestamp'] as String),
+          );
+
+          // 중복 확인 후 저장
+          final existingEntry = await getEntryForHour(healthEntry.timestamp);
+          if (existingEntry == null) {
+            await saveHealthEntry(healthEntry);
+            syncedCount++;
+          }
+        } catch (e) {
+          print('네이티브 데이터 변환 오류: $e');
+        }
+      }
+
+      print('✅ 네이티브 데이터 동기화 완료: $syncedCount개 항목 추가');
+    } catch (e) {
+      print('❌ 네이티브 데이터 동기화 실패: $e');
+    }
   }
 }

@@ -29,6 +29,9 @@ void main() async {
       ProviderContainer(); // for accessing providers before runApp
   final bleService = container.read(bleServiceProvider);
 
+  // 네이티브 데이터 동기화 (백그라운드에서 저장된 데이터 불러오기)
+  await LocalDbService.syncNativeHealthData();
+
   // Load latest saved health data so MainScreen shows values immediately
   await container.read(healthDataProvider.notifier).loadInitialData();
 

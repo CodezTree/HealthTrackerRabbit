@@ -10,6 +10,8 @@ import 'package:rabbithole_health_tracker_new/providers/connection_provider.dart
 import 'package:rabbithole_health_tracker_new/providers/ble_provider.dart';
 import 'package:rabbithole_health_tracker_new/utils/device_storage.dart';
 import 'package:rabbithole_health_tracker_new/utils/token_storage.dart';
+import 'package:rabbithole_health_tracker_new/services/local_db_service.dart';
+import 'package:rabbithole_health_tracker_new/models/health_entry.dart';
 
 class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
@@ -18,14 +20,71 @@ class MainScreen extends ConsumerStatefulWidget {
   ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends ConsumerState<MainScreen> {
+class _MainScreenState extends ConsumerState<MainScreen>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    // 앱 생명주기 감지를 위한 옵저버 등록
+    WidgetsBinding.instance.addObserver(this);
+
     // 화면 진입 시 DB에서 최신 건강 데이터 로드
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(healthDataProvider.notifier).loadInitialData();
+      _loadLatestHealthData();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    // 앱이 포그라운드로 돌아올 때 최신 데이터 로드
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('🔄 앱이 포그라운드로 돌아왔습니다 - 최신 데이터 로드');
+      _loadLatestHealthData();
+    }
+  }
+
+  /// 최신 건강 데이터를 로드하는 메서드
+  Future<void> _loadLatestHealthData() async {
+    try {
+      // 네이티브 데이터 동기화 먼저 시도
+      await LocalDbService.syncNativeHealthData();
+
+      // health_provider 업데이트
+      await ref.read(healthDataProvider.notifier).loadInitialData();
+
+      debugPrint('✅ 최신 건강 데이터 로드 완료');
+    } catch (e) {
+      debugPrint('❌ 건강 데이터 로드 오류: $e');
+    }
+  }
+
+  /// 최신 측정 시간을 포맷하여 반환
+  String _getFormattedLastMeasurementTime(HealthEntry? latest) {
+    if (latest == null) {
+      return "${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')} 기준";
+    }
+
+    final measurementTime = latest.timestamp;
+    final now = DateTime.now();
+    final diff = now.difference(measurementTime);
+
+    if (diff.inMinutes < 1) {
+      return "방금 전 측정";
+    } else if (diff.inMinutes < 60) {
+      return "${diff.inMinutes}분 전 측정";
+    } else if (diff.inHours < 24) {
+      return "${diff.inHours}시간 전 측정";
+    } else {
+      return "${measurementTime.hour.toString().padLeft(2, '0')}:${measurementTime.minute.toString().padLeft(2, '0')} 측정";
+    }
   }
 
   void _goToDetail(BuildContext context, String type) {
@@ -91,13 +150,29 @@ class _MainScreenState extends ConsumerState<MainScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  // Top bar with emergency notification button
+                  // Top bar with emergency notification button and refresh button
                   Container(
                     height: 36,
                     margin: const EdgeInsets.only(bottom: 12),
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
+                        // 새로고침 버튼 (왼쪽)
+                        Positioned(
+                          left: 16,
+                          top: 0,
+                          child: IconButton(
+                            icon: const Icon(
+                              Icons.refresh,
+                              color: Colors.white,
+                              size: 28,
+                            ),
+                            onPressed: () {
+                              debugPrint('🔄 수동 새로고침 시작');
+                              _loadLatestHealthData();
+                            },
+                          ),
+                        ),
                         Positioned(
                           left: 0,
                           child: IconButton(
@@ -704,7 +779,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                                       MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      "${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')} 기준",
+                                      _getFormattedLastMeasurementTime(
+                                        healthData.latest,
+                                      ),
                                       style: const TextStyle(
                                         fontSize: 30,
                                         fontWeight: FontWeight.w700,

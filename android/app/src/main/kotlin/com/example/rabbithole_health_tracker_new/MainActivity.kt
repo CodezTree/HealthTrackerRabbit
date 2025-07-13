@@ -11,6 +11,7 @@ import com.smtlink.transferprotocolsdk.ble.BTMGattCallBack
 import com.smtlink.transferprotocolsdk.ble.AnalyticalDataCallBack
 import org.json.JSONObject
 import android.content.Intent
+import android.content.Context
 import android.os.Build
 import android.util.Log
 import java.util.*
@@ -231,6 +232,36 @@ class MainActivity: FlutterActivity() {
                         result.error("SEND_BACKGROUND_DATA_FAILED", e.message, null)
                     }
                 }
+                "saveBackgroundHealthData" -> {
+                    try {
+                        val heartRate = call.argument<Int>("heartRate") ?: 0
+                        val spo2 = call.argument<Int>("spo2") ?: 0
+                        val stepCount = call.argument<Int>("stepCount") ?: 0
+                        val battery = call.argument<Int>("battery") ?: 0
+                        val chargingState = call.argument<Int>("chargingState") ?: 0
+                        val timestamp = call.argument<String>("timestamp") ?: ""
+                        
+                        Log.d(TAG, "백그라운드 건강 데이터 로컬 저장 요청: HR=$heartRate, SpO2=$spo2, Steps=$stepCount, Battery=$battery%, ChargingState=$chargingState")
+                        
+                        // Flutter의 LocalDbService를 호출하기 위해 이벤트로 전송
+                        MainApplication.instance.saveBackgroundHealthDataToLocal(
+                            heartRate, spo2, stepCount, battery, chargingState, timestamp
+                        )
+                        
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SAVE_BACKGROUND_DATA_FAILED", e.message, null)
+                    }
+                }
+                "getNativeHealthData" -> {
+                    try {
+                        val limit = call.argument<Int>("limit") ?: 100
+                        val healthData = getNativeHealthData(limit)
+                        result.success(healthData)
+                    } catch (e: Exception) {
+                        result.error("GET_NATIVE_DATA_FAILED", e.message, null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -389,6 +420,60 @@ class MainActivity: FlutterActivity() {
         }
 
         execute(0)
+    }
+    
+    /**
+     * 네이티브 SQLite에서 건강 데이터 읽기
+     */
+    private fun getNativeHealthData(limit: Int): List<Map<String, Any>> {
+        val healthData = mutableListOf<Map<String, Any>>()
+        
+        try {
+            val db = this.openOrCreateDatabase("health_tracker.db", Context.MODE_PRIVATE, null)
+            
+            // 테이블 존재 확인
+            val cursor = db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='health_entries'", null)
+            val tableExists = cursor.count > 0
+            cursor.close()
+            
+            if (!tableExists) {
+                Log.d(TAG, "네이티브 health_entries 테이블이 존재하지 않음")
+                db.close()
+                return healthData
+            }
+            
+            // 데이터 조회 (최신 순으로 제한)
+            val dataCursor = db.rawQuery("""
+                SELECT id, heart_rate, spo2, step_count, battery, charging_state, timestamp, created_at
+                FROM health_entries 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            """, arrayOf(limit.toString()))
+            
+            while (dataCursor.moveToNext()) {
+                val entry = mapOf(
+                    "id" to dataCursor.getInt(0),
+                    "heartRate" to dataCursor.getInt(1),
+                    "spo2" to dataCursor.getInt(2),
+                    "stepCount" to dataCursor.getInt(3),
+                    "battery" to dataCursor.getInt(4),
+                    "chargingState" to dataCursor.getInt(5),
+                    "timestamp" to dataCursor.getString(6),
+                    "createdAt" to dataCursor.getString(7)
+                )
+                healthData.add(entry)
+            }
+            
+            dataCursor.close()
+            db.close()
+            
+            Log.d(TAG, "네이티브 건강 데이터 ${healthData.size}개 조회 완료")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "네이티브 건강 데이터 조회 실패: ${e.message}")
+        }
+        
+        return healthData
     }
 
     // (onConnected 콜백은 MainApplication에서 처리합니다)

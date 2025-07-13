@@ -23,6 +23,298 @@ class HealthDataNotifier extends StateNotifier<HealthData> {
     final month = await LocalDbService.getEntriesForRange(monthStart, now);
 
     state = HealthData(latest: latest, today: today, week: week, month: month);
+
+    // 최신 데이터 로드 완료 로그
+    if (latest != null) {
+      print(
+        '📊 최신 건강 데이터 로드: HR=${latest.heartRate}, SpO2=${latest.spo2}%, Steps=${latest.stepCount}',
+      );
+    }
+  }
+
+  /// 실시간 건강 데이터 업데이트 (백그라운드 데이터 수신 시 사용)
+  Future<void> updateFromBackgroundData({
+    required int heartRate,
+    required int spo2,
+    required int stepCount,
+    required int battery,
+    required int chargingState,
+    required DateTime timestamp,
+  }) async {
+    try {
+      // 새로운 데이터로 latest 업데이트
+      final updatedLatest = HealthEntry.create(
+        userId: state.latest?.userId ?? 'current_user',
+        heartRate: heartRate,
+        minHeartRate: heartRate,
+        maxHeartRate: heartRate,
+        spo2: spo2,
+        stepCount: stepCount,
+        battery: battery,
+        chargingState: chargingState,
+        sleepHours: 0.0,
+        sportsTime: 0,
+        screenStatus: 0,
+        timestamp: timestamp,
+      );
+
+      // 전체 데이터 다시 로드
+      await loadInitialData();
+
+      print(
+        '✅ 백그라운드 데이터로 UI 업데이트 완료: HR=$heartRate, SpO2=$spo2%, Steps=$stepCount',
+      );
+    } catch (e) {
+      print('❌ 백그라운드 데이터 UI 업데이트 오류: $e');
+    }
+  }
+
+  /// 일간 데이터: 24시간 데이터를 시간별로 처리
+  /// 1시간 평균치 반환 (걸음수는 해당 시간별 데이터)
+  Future<List<HealthEntry>> getDailyData() async {
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    final endOfDay = startOfDay.add(const Duration(hours: 24));
+
+    final entries = await LocalDbService.getEntriesForRange(
+      startOfDay,
+      endOfDay,
+    );
+
+    List<HealthEntry> hourlyData = [];
+
+    for (int hour = 0; hour < 24; hour++) {
+      final hourStart = DateTime(now.year, now.month, now.day, hour);
+      final hourEnd = hourStart.add(const Duration(hours: 1));
+
+      final hourEntries = entries
+          .where(
+            (entry) =>
+                entry.timestamp.isAfter(hourStart) &&
+                entry.timestamp.isBefore(hourEnd),
+          )
+          .toList();
+
+      if (hourEntries.isNotEmpty) {
+        // 시간별 평균치 계산 (0값 제외)
+        final validHeartRates = hourEntries
+            .map((e) => e.heartRate)
+            .where((hr) => hr > 0)
+            .toList();
+        final validSpo2 = hourEntries
+            .map((e) => e.spo2)
+            .where((spo2) => spo2 > 0)
+            .toList();
+        final validBattery = hourEntries
+            .map((e) => e.battery)
+            .where((battery) => battery > 0)
+            .toList();
+
+        final avgHeartRate = validHeartRates.isNotEmpty
+            ? validHeartRates.reduce((a, b) => a + b) ~/ validHeartRates.length
+            : 0;
+        final avgSpo2 = validSpo2.isNotEmpty
+            ? validSpo2.reduce((a, b) => a + b) ~/ validSpo2.length
+            : 0;
+        final avgBattery = validBattery.isNotEmpty
+            ? validBattery.reduce((a, b) => a + b) ~/ validBattery.length
+            : 0;
+
+        // 걸음수는 해당 시간의 최대값 사용
+        final maxSteps = hourEntries
+            .map((e) => e.stepCount)
+            .reduce((a, b) => a > b ? a : b);
+
+        // 심박수 최대/최소값
+        final minHeartRate = validHeartRates.isNotEmpty
+            ? validHeartRates.reduce((a, b) => a < b ? a : b)
+            : 0;
+        final maxHeartRate = validHeartRates.isNotEmpty
+            ? validHeartRates.reduce((a, b) => a > b ? a : b)
+            : 0;
+
+        hourlyData.add(
+          HealthEntry.create(
+            userId: 'current_user',
+            heartRate: avgHeartRate,
+            minHeartRate: minHeartRate,
+            maxHeartRate: maxHeartRate,
+            spo2: avgSpo2,
+            stepCount: maxSteps,
+            battery: avgBattery,
+            chargingState: hourEntries.last.chargingState,
+            sleepHours: hourEntries.last.sleepHours,
+            sportsTime: hourEntries.last.sportsTime,
+            screenStatus: hourEntries.last.screenStatus,
+            timestamp: hourStart,
+          ),
+        );
+      }
+    }
+
+    return hourlyData;
+  }
+
+  /// 주간 데이터: 월-일 7일간 데이터를 일별로 처리
+  /// 평균치 반환 (걸음수는 최대치)
+  Future<List<HealthEntry>> getWeeklyData() async {
+    final now = DateTime.now();
+    final currentWeekday = now.weekday; // 1=월요일, 7=일요일
+
+    // 이번 주 월요일 찾기
+    final mondayOfThisWeek = now.subtract(Duration(days: currentWeekday - 1));
+    final startOfWeek = DateTime(
+      mondayOfThisWeek.year,
+      mondayOfThisWeek.month,
+      mondayOfThisWeek.day,
+    );
+
+    List<HealthEntry> weeklyData = [];
+
+    // 월요일부터 현재 요일까지만 표시
+    for (int day = 0; day < currentWeekday; day++) {
+      final dayStart = startOfWeek.add(Duration(days: day));
+      final dayEnd = dayStart.add(const Duration(days: 1));
+
+      final dayEntries = await LocalDbService.getEntriesForRange(
+        dayStart,
+        dayEnd,
+      );
+
+      if (dayEntries.isNotEmpty) {
+        // 일별 평균치 계산 (0값 제외)
+        final validHeartRates = dayEntries
+            .map((e) => e.heartRate)
+            .where((hr) => hr > 0)
+            .toList();
+        final validSpo2 = dayEntries
+            .map((e) => e.spo2)
+            .where((spo2) => spo2 > 0)
+            .toList();
+        final validBattery = dayEntries
+            .map((e) => e.battery)
+            .where((battery) => battery > 0)
+            .toList();
+
+        final avgHeartRate = validHeartRates.isNotEmpty
+            ? validHeartRates.reduce((a, b) => a + b) ~/ validHeartRates.length
+            : 0;
+        final avgSpo2 = validSpo2.isNotEmpty
+            ? validSpo2.reduce((a, b) => a + b) ~/ validSpo2.length
+            : 0;
+        final avgBattery = validBattery.isNotEmpty
+            ? validBattery.reduce((a, b) => a + b) ~/ validBattery.length
+            : 0;
+
+        // 걸음수는 최대값 사용
+        final maxSteps = dayEntries
+            .map((e) => e.stepCount)
+            .reduce((a, b) => a > b ? a : b);
+
+        // 심박수 최대/최소값
+        final minHeartRate = validHeartRates.isNotEmpty
+            ? validHeartRates.reduce((a, b) => a < b ? a : b)
+            : 0;
+        final maxHeartRate = validHeartRates.isNotEmpty
+            ? validHeartRates.reduce((a, b) => a > b ? a : b)
+            : 0;
+
+        weeklyData.add(
+          HealthEntry.create(
+            userId: 'current_user',
+            heartRate: avgHeartRate,
+            minHeartRate: minHeartRate,
+            maxHeartRate: maxHeartRate,
+            spo2: avgSpo2,
+            stepCount: maxSteps,
+            battery: avgBattery,
+            chargingState: dayEntries.last.chargingState,
+            sleepHours: dayEntries.last.sleepHours,
+            sportsTime: dayEntries.last.sportsTime,
+            screenStatus: dayEntries.last.screenStatus,
+            timestamp: dayStart,
+          ),
+        );
+      }
+    }
+
+    return weeklyData;
+  }
+
+  /// 월간 데이터: 최근 7개월 데이터를 월별로 처리
+  /// 평균치 반환 (걸음수는 최대치)
+  Future<List<HealthEntry>> getMonthlyData() async {
+    final now = DateTime.now();
+    List<HealthEntry> monthlyData = [];
+
+    // 최근 7개월 처리
+    for (int monthOffset = 6; monthOffset >= 0; monthOffset--) {
+      final targetMonth = DateTime(now.year, now.month - monthOffset, 1);
+      final nextMonth = DateTime(targetMonth.year, targetMonth.month + 1, 1);
+
+      final monthEntries = await LocalDbService.getEntriesForRange(
+        targetMonth,
+        nextMonth,
+      );
+
+      if (monthEntries.isNotEmpty) {
+        // 월별 평균치 계산 (0값 제외)
+        final validHeartRates = monthEntries
+            .map((e) => e.heartRate)
+            .where((hr) => hr > 0)
+            .toList();
+        final validSpo2 = monthEntries
+            .map((e) => e.spo2)
+            .where((spo2) => spo2 > 0)
+            .toList();
+        final validBattery = monthEntries
+            .map((e) => e.battery)
+            .where((battery) => battery > 0)
+            .toList();
+
+        final avgHeartRate = validHeartRates.isNotEmpty
+            ? validHeartRates.reduce((a, b) => a + b) ~/ validHeartRates.length
+            : 0;
+        final avgSpo2 = validSpo2.isNotEmpty
+            ? validSpo2.reduce((a, b) => a + b) ~/ validSpo2.length
+            : 0;
+        final avgBattery = validBattery.isNotEmpty
+            ? validBattery.reduce((a, b) => a + b) ~/ validBattery.length
+            : 0;
+
+        // 걸음수는 최대값 사용
+        final maxSteps = monthEntries
+            .map((e) => e.stepCount)
+            .reduce((a, b) => a > b ? a : b);
+
+        // 심박수 최대/최소값
+        final minHeartRate = validHeartRates.isNotEmpty
+            ? validHeartRates.reduce((a, b) => a < b ? a : b)
+            : 0;
+        final maxHeartRate = validHeartRates.isNotEmpty
+            ? validHeartRates.reduce((a, b) => a > b ? a : b)
+            : 0;
+
+        monthlyData.add(
+          HealthEntry.create(
+            userId: 'current_user',
+            heartRate: avgHeartRate,
+            minHeartRate: minHeartRate,
+            maxHeartRate: maxHeartRate,
+            spo2: avgSpo2,
+            stepCount: maxSteps,
+            battery: avgBattery,
+            chargingState: monthEntries.last.chargingState,
+            sleepHours: monthEntries.last.sleepHours,
+            sportsTime: monthEntries.last.sportsTime,
+            screenStatus: monthEntries.last.screenStatus,
+            timestamp: targetMonth,
+          ),
+        );
+      }
+    }
+
+    return monthlyData;
   }
 
   Future<void> updateHealthData({

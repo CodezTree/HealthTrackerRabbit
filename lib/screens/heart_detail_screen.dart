@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:rabbithole_health_tracker_new/models/health_entry.dart';
 import 'package:rabbithole_health_tracker_new/providers/health_provider.dart';
 
@@ -12,11 +11,16 @@ class HeartDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _HeartDetailScreenState extends ConsumerState<HeartDetailScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late TabController _tabController;
+  late AnimationController _heartAnimationController;
+  late Animation<double> _heartAnimation;
 
-  static const double maxY = 200;
-  static const double minY = 200;
+  // 차트 데이터 상태
+  List<HealthEntry> dailyData = [];
+  List<HealthEntry> weeklyData = [];
+  List<HealthEntry> monthlyData = [];
+  bool isLoading = true;
 
   // Add heart rate thresholds
   static const int normalThreshold = 100;
@@ -33,155 +37,429 @@ class _HeartDetailScreenState extends ConsumerState<HeartDetailScreen>
     }
   }
 
+  String getHeartStatus(int bpm) {
+    if (bpm <= normalThreshold) {
+      return "정상"; // 정상수치
+    } else if (bpm <= highThreshold) {
+      return "약간 높음"; // 약간 높음
+    } else {
+      return "매우 높음"; // 매우 높음
+    }
+  }
+
+  void _updateHeartAnimation(int heartRate) {
+    // 심박수에 따라 애니메이션 속도 조절 (60-200 BPM 범위)
+    // 정상 심박수 60-100bpm -> 1.0-1.5초 주기
+    // 높은 심박수 100-200bpm -> 0.6-1.0초 주기
+    double animationDuration;
+    if (heartRate <= 60) {
+      animationDuration = 1.5;
+    } else if (heartRate <= 100) {
+      animationDuration = 1.5 - (heartRate - 60) * 0.5 / 40; // 1.5 -> 1.0
+    } else {
+      animationDuration = 1.0 - (heartRate - 100) * 0.4 / 100; // 1.0 -> 0.6
+    }
+
+    _heartAnimationController.duration = Duration(
+      milliseconds: (animationDuration * 1000).round(),
+    );
+    _heartAnimationController.repeat(reverse: true);
+  }
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+
+    // 하트 애니메이션 컨트롤러 초기화
+    _heartAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+
+    // 하트 크기 애니메이션 (0.8배 ~ 1.2배)
+    _heartAnimation = Tween<double>(begin: 0.8, end: 1.2).animate(
+      CurvedAnimation(
+        parent: _heartAnimationController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    _loadChartData();
+
+    // 기본 애니메이션 시작
+    _heartAnimationController.repeat(reverse: true);
   }
 
-  Widget _buildChartView(List<HealthEntry> entries) {
-    if (entries.isEmpty) {
-      return const Center(child: Text("데이터가 없습니다 🥲"));
-    }
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _heartAnimationController.dispose();
+    super.dispose();
+  }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final chartWidth = constraints.maxWidth - 52;
-        final barGap = chartWidth / (entries.length * 2);
-        return Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: _buildBarChart(entries),
+  Future<void> _loadChartData() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    final healthNotifier = ref.read(healthDataProvider.notifier);
+
+    try {
+      final daily = await healthNotifier.getDailyData();
+      final weekly = await healthNotifier.getWeeklyData();
+      final monthly = await healthNotifier.getMonthlyData();
+
+      setState(() {
+        dailyData = daily;
+        weeklyData = weekly;
+        monthlyData = monthly;
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+      print('차트 데이터 로드 오류: $e');
+    }
+  }
+
+  Widget _buildCurrentHeartCard(int currentHeart, int minHeart, int maxHeart) {
+    // 심박수 변경시 애니메이션 업데이트
+    _updateHeartAnimation(currentHeart);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // 제목
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: getHeartColor(currentHeart).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
             ),
-            for (int i = 0; i < entries.length; i++) ...[
-              Positioned(
-                left: barGap * i * 2 + barGap + 18,
-                bottom:
-                    200 / (maxY + minY) * entries[i].maxHeartRate + 160 + 12,
-                child: Text(
-                  "${entries[i].maxHeartRate}",
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF6098B8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.favorite,
+                  color: getHeartColor(currentHeart),
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  "오늘의 심박수",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF2D3748),
                   ),
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // 메인 심박수 표시
+          Container(
+            width: 160,
+            height: 160,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  getHeartColor(currentHeart).withOpacity(0.1),
+                  getHeartColor(currentHeart).withOpacity(0.05),
+                  Colors.transparent,
+                ],
               ),
-              Positioned(
-                left: barGap * i * 2 + barGap + 18,
-                top: 200 / (maxY + minY) * entries[i].minHeartRate + 140 + 4,
-                child: Text(
-                  "${entries[i].minHeartRate}",
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF73B7DC),
-                  ),
+              border: Border.all(
+                color: getHeartColor(currentHeart).withOpacity(0.3),
+                width: 2,
+              ),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // 애니메이션 적용된 하트 아이콘
+                AnimatedBuilder(
+                  animation: _heartAnimation,
+                  builder: (context, child) {
+                    return Transform.scale(
+                      scale: _heartAnimation.value,
+                      child: Icon(
+                        Icons.favorite,
+                        size: 80,
+                        color: getHeartColor(currentHeart).withOpacity(0.3),
+                      ),
+                    );
+                  },
+                ),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      "$currentHeart",
+                      style: TextStyle(
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                        color: getHeartColor(currentHeart),
+                      ),
+                    ),
+                    Text(
+                      "BPM",
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: getHeartColor(currentHeart).withOpacity(0.8),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: getHeartColor(currentHeart),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        getHeartStatus(currentHeart),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // 최대/최소 표시
+          Row(
+            children: [
+              Expanded(
+                child: _buildMinMaxCard(
+                  label: "오늘 최저",
+                  value: minHeart,
+                  icon: Icons.keyboard_arrow_down,
+                  color: const Color(0xFF4299E1),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildMinMaxCard(
+                  label: "오늘 최고",
+                  value: maxHeart,
+                  icon: Icons.keyboard_arrow_up,
+                  color: const Color(0xFFE53E3E),
                 ),
               ),
             ],
-          ],
-        );
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMinMaxCard({
+    required String label,
+    required int value,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(height: 8),
+          Text(
+            "$value",
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: color.withOpacity(0.8),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDataView(List<HealthEntry> entries, int tabIndex) {
+    if (isLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(40),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (entries.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(40),
+          child: Column(
+            children: [
+              Icon(Icons.heart_broken, size: 48, color: Colors.grey),
+              SizedBox(height: 16),
+              Text(
+                "데이터가 없습니다",
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final entry = entries[index];
+        return _buildDataCard(entry, tabIndex, index);
       },
     );
   }
 
-  Widget _buildBarChart(List<HealthEntry> entries) {
-    return BarChart(
-      BarChartData(
-        alignment: BarChartAlignment.spaceEvenly,
-        maxY: maxY,
-        minY: -minY,
-        barGroups: entries
-            .map(
-              (e) => BarChartGroupData(
-                x: entries.indexOf(e),
-                barRods: [
-                  BarChartRodData(
-                    fromY: -minY,
-                    toY: maxY,
-                    width: 16,
-                    color: Colors.transparent,
-                    borderRadius: BorderRadius.circular(6),
-                    rodStackItems: [
-                      BarChartRodStackItem(
-                        -minY,
-                        -e.minHeartRate.toDouble(),
-                        Colors.transparent,
+  Widget _buildDataCard(HealthEntry entry, int tabIndex, int index) {
+    String timeLabel;
+    if (tabIndex == 0) {
+      timeLabel = "${entry.timestamp.hour.toString().padLeft(2, '0')}:00";
+    } else if (tabIndex == 1) {
+      const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+      timeLabel = weekdays[entry.timestamp.weekday - 1];
+    } else {
+      timeLabel = "${entry.timestamp.month}월";
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // 시간 표시
+          SizedBox(
+            width: 60,
+            child: Text(
+              timeLabel,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF4A5568),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+
+          // 심박수 바
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "${entry.heartRate} BPM",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: getHeartColor(entry.heartRate),
                       ),
-                      BarChartRodStackItem(
-                        -e.minHeartRate.toDouble(),
-                        0,
-                        const Color(0xFFA8E0FF),
+                    ),
+                    Text(
+                      "${entry.minHeartRate}-${entry.maxHeartRate}",
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF718096),
                       ),
-                      BarChartRodStackItem(
-                        0,
-                        e.maxHeartRate.toDouble(),
-                        const Color(0xFF6CA2C0),
-                      ),
-                      BarChartRodStackItem(
-                        e.maxHeartRate.toDouble(),
-                        maxY,
-                        Colors.transparent,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  height: 6,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(3),
+                    color: Colors.grey.shade200,
+                  ),
+                  child: Stack(
+                    children: [
+                      // 심박수 바
+                      FractionallySizedBox(
+                        widthFactor: (entry.heartRate / 200).clamp(0.0, 1.0),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(3),
+                            color: getHeartColor(entry.heartRate),
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                ],
-              ),
-            )
-            .toList(),
-        backgroundColor: Colors.white,
-        extraLinesData: ExtraLinesData(
-          horizontalLines: [
-            HorizontalLine(y: 0, color: Colors.grey.shade300, strokeWidth: 1),
-          ],
-        ),
-        gridData: const FlGridData(show: false),
-        titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 30,
-              getTitlesWidget: (value, _) {
-                int idx = value.toInt();
-                if (idx >= entries.length) return const Text('');
-                final dt = entries[idx].timestamp;
-                if (_tabController.index == 0) {
-                  return Text(
-                    "${dt.hour.toString().padLeft(2, '0')}:00",
-                    style: const TextStyle(fontSize: 10),
-                  );
-                } else if (_tabController.index == 1) {
-                  const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-                  return Text(
-                    weekdays[dt.weekday - 1],
-                    style: const TextStyle(fontSize: 10),
-                  );
-                } else {
-                  return Text(
-                    "${dt.month}월",
-                    style: const TextStyle(fontSize: 10),
-                  );
-                }
-              },
+                ),
+              ],
             ),
           ),
-        ),
-        borderData: FlBorderData(show: false),
-        barTouchData: BarTouchData(enabled: false),
-        groupsSpace: 0,
+          const SizedBox(width: 12),
+
+          // 상태 표시
+          Icon(Icons.favorite, color: getHeartColor(entry.heartRate), size: 20),
+        ],
       ),
-      swapAnimationDuration: Duration.zero,
     );
   }
 
@@ -193,254 +471,120 @@ class _HeartDetailScreenState extends ConsumerState<HeartDetailScreen>
     final maxHeart = healthData.maxHeartRate;
 
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            stops: [0.0, 0.6837],
-            colors: [Color(0xFF79ABC7), Colors.white],
+      backgroundColor: const Color(0xFFF7FAFC),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          "심박수 상세",
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    // Top title bar with icon and label
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F8FF),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.favorite, color: Color(0xFF6CA2C0)),
-                          SizedBox(width: 8),
-                          Text(
-                            "심박",
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF6CA2C0),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // Left-aligned large heart & bpm, right-aligned heart legend
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Column(
-                            children: [
-                              Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.favorite,
-                                    size: 120,
-                                    color: getHeartColor(currentHeart),
-                                  ),
-                                  Text(
-                                    "$currentHeart\nbpm",
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      fontSize: 26,
-                                      height: 0.8,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          const SizedBox(width: 24),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _HeartLevel(
-                                  color: Color(0xFF6CA2C0),
-                                  label: "정상수치",
-                                ),
-                                SizedBox(height: 8),
-                                _HeartLevel(
-                                  color: Color(0xFFDF7548),
-                                  label: "약간 높음",
-                                ),
-                                SizedBox(height: 8),
-                                _HeartLevel(
-                                  color: Color(0xFFE92430),
-                                  label: "매우 높음",
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    // EKG image
-                    Container(
-                      width: double.infinity,
-                      height: 80,
-                      margin: const EdgeInsets.symmetric(horizontal: 32),
-                      child: Image.asset(
-                        'assets/images/heart_background.png',
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    // Min/Max display
-                    const Text(
-                      "3시간\n최저 / 최고 심박",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 20,
-                        color: Color(0xFF6392AE),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Icon(
-                              Icons.favorite,
-                              size: 84,
-                              color: getHeartColor(minHeart),
-                            ),
-                            Text(
-                              "$minHeart\nbpm",
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                height: 0.9,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Icon(
-                              Icons.favorite,
-                              size: 84,
-                              color: getHeartColor(maxHeart),
-                            ),
-                            Text(
-                              "$maxHeart\nbpm",
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                height: 0.9,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF79ABC7), Color(0xFF6CA2C0)],
+            ),
+          ),
+        ),
+      ),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // 그라데이션 배경 영역
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF6CA2C0), Color(0xFFF7FAFC)],
+                  stops: [0.0, 0.3],
                 ),
               ),
-              const SizedBox(height: 16),
-              // Tabs and chart
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                child: _buildCurrentHeartCard(currentHeart, minHeart, maxHeart),
+              ),
+            ),
+
+            // 탭 및 데이터 표시 영역
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  // 탭 바
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Colors.grey.shade200),
+                      ),
                     ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    TabBar(
+                    child: TabBar(
                       controller: _tabController,
                       labelColor: const Color(0xFF6CA2C0),
-                      unselectedLabelColor: Colors.grey,
+                      unselectedLabelColor: const Color(0xFF718096),
                       indicatorColor: const Color(0xFF6CA2C0),
+                      indicatorWeight: 3,
+                      labelStyle: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                      unselectedLabelStyle: const TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 16,
+                      ),
+                      onTap: (index) {
+                        setState(() {
+                          // 탭 변경 시 UI 업데이트
+                        });
+                      },
                       tabs: const [
                         Tab(text: "오늘"),
                         Tab(text: "주간"),
                         Tab(text: "월간"),
                       ],
                     ),
-                    SizedBox(
-                      height: 280,
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _buildChartView(healthData.today),
-                          _buildChartView(healthData.week),
-                          _buildChartView(healthData.month),
-                        ],
-                      ),
+                  ),
+
+                  // 탭 내용
+                  SizedBox(
+                    height: 400,
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildDataView(dailyData, 0),
+                        _buildDataView(weeklyData, 1),
+                        _buildDataView(monthlyData, 2),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 24),
+          ],
         ),
       ),
-    );
-  }
-}
-
-// Heart legend widget
-class _HeartLevel extends StatelessWidget {
-  final Color color;
-  final String label;
-
-  const _HeartLevel({required this.color, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(Icons.favorite, size: 24, color: color),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 14, color: Colors.black87),
-        ),
-      ],
     );
   }
 }
